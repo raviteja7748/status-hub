@@ -1,10 +1,9 @@
 bin/
-dist/
+/dist/
 *.db
 *.db-shm
 *.db-wal
 node_modules/
 web/node_modules/
-web/dist/
 mac/StatusMenu/.build/
 .DS_Store

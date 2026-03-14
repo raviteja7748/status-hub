@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"io/fs"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -56,6 +58,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/notification-channels", s.withAuth(s.handleChannels))
 	mux.HandleFunc("/ws/device", s.handleDeviceSocket)
 	mux.HandleFunc("/ws/stream", s.handleClientStream)
+	mux.Handle("/", staticHandler())
 	return loggingMiddleware(mux)
 }
 
@@ -413,5 +416,45 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+	})
+}
+
+func staticHandler() http.Handler {
+	sub, err := fs.Sub(os.DirFS("."), "web/dist")
+	if err != nil {
+		log.Printf("web assets unavailable: %v", err)
+		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "web assets unavailable", http.StatusNotFound)
+		})
+	}
+
+	fileServer := http.FileServer(http.FS(sub))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
+			http.NotFound(w, r)
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/")
+		if path == "" {
+			path = "index.html"
+		}
+
+		if _, err := fs.Stat(sub, path); err == nil {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+
+		index, err := fs.ReadFile(sub, "index.html")
+		if err != nil {
+			http.Error(w, "index unavailable", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(index)
 	})
 }
