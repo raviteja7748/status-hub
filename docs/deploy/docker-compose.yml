@@ -1,0 +1,14 @@
+services:
+  status-hub:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.hub
+    environment:
+      STATUS_ADMIN_PASSWORD: statusadmin
+    ports:
+      - "8080:8080"
+    volumes:
+      - status-data:/app
+
+volumes:
+  status-data:

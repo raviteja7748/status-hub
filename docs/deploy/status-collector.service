@@ -1,0 +1,14 @@
+[Unit]
+Description=Status Hub Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/status-collector -hub http://100.64.0.10:8080 -token replace-me -name old-linux-laptop
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
