@@ -13,7 +13,19 @@ const widgetCatalog = [
   { kind: 'docker', title: 'Docker', size: 'wide' },
 ]
 
-const defaultBaseUrl = localStorage.getItem('status.baseUrl') ?? 'http://localhost:8080'
+function resolveDefaultBaseUrl() {
+  const saved = localStorage.getItem('status.baseUrl')
+  const currentOrigin = window.location.origin
+  if (saved && (!saved.includes('localhost') || currentOrigin.includes('localhost'))) {
+    return saved
+  }
+  if (currentOrigin.startsWith('http')) {
+    return currentOrigin
+  }
+  return 'http://localhost:8080'
+}
+
+const defaultBaseUrl = resolveDefaultBaseUrl()
 const defaultToken = localStorage.getItem('status.token') ?? ''
 
 function App() {
