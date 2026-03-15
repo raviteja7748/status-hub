@@ -2,7 +2,9 @@ package hub
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"sort"
@@ -23,8 +25,30 @@ func NewStore(path string) (*Store, error) {
 		return nil, err
 	}
 
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
+	db.SetConnMaxLifetime(0)
+
 	store := &Store{db: db}
+	if err := store.configure(); err != nil {
+		return nil, err
+	}
 	return store, store.init()
+}
+
+func (s *Store) configure() error {
+	pragmas := []string{
+		`pragma journal_mode = wal;`,
+		`pragma busy_timeout = 5000;`,
+		`pragma synchronous = normal;`,
+		`pragma foreign_keys = on;`,
+	}
+	for _, stmt := range pragmas {
+		if _, err := s.db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) init() error {
@@ -75,7 +99,9 @@ func (s *Store) init() error {
 			body text not null,
 			created_at text not null,
 			resolved_at text,
-			dedupe_key text not null unique
+			dedupe_key text not null unique,
+			acknowledged_at text,
+			acknowledged_by text
 		);`,
 		`create table if not exists notification_channels (
 			id text primary key,
@@ -84,12 +110,37 @@ func (s *Store) init() error {
 			enabled integer not null,
 			config text not null
 		);`,
+		`create table if not exists client_tokens (
+			id text primary key,
+			name text not null,
+			kind text not null,
+			token_hash text not null unique,
+			created_at text not null,
+			last_used_at text,
+			revoked integer not null
+		);`,
+		`create table if not exists layouts (
+			id text primary key,
+			device_id text not null,
+			target text not null,
+			widgets text not null,
+			updated_at text not null,
+			unique(device_id, target)
+		);`,
 	}
 
 	for _, stmt := range statements {
 		if _, err := s.db.Exec(stmt); err != nil {
 			return err
 		}
+	}
+
+	schemaChanges := []string{
+		`alter table events add column acknowledged_at text;`,
+		`alter table events add column acknowledged_by text;`,
+	}
+	for _, stmt := range schemaChanges {
+		_, _ = s.db.Exec(stmt)
 	}
 
 	return nil
@@ -125,11 +176,11 @@ func (s *Store) UpsertDevice(ctx context.Context, token, name string, capabiliti
 	now := time.Now().UTC().Format(time.RFC3339)
 	caps, _ := json.Marshal(capabilities)
 	meta, _ := json.Marshal(metadata)
+
 	if errors.Is(err, sql.ErrNoRows) {
 		id = uuid.NewString()
-		_, err = s.db.ExecContext(ctx, `insert into devices (id, name, token, last_seen, capabilities, metadata) values (?, ?, ?, ?, ?, ?)`,
-			id, name, token, now, string(caps), string(meta))
-		if err != nil {
+		if _, err := s.db.ExecContext(ctx, `insert into devices (id, name, token, last_seen, capabilities, metadata) values (?, ?, ?, ?, ?, ?)`,
+			id, name, token, now, string(caps), string(meta)); err != nil {
 			return model.Device{}, err
 		}
 		if err := s.SaveWidgets(ctx, id, DefaultWidgets(id)); err != nil {
@@ -138,13 +189,28 @@ func (s *Store) UpsertDevice(ctx context.Context, token, name string, capabiliti
 		if err := s.SaveAlertRules(ctx, id, DefaultAlertRules(id)); err != nil {
 			return model.Device{}, err
 		}
+		if err := s.SaveLayout(ctx, id, "mac_menu_bar", DefaultLayoutWidgets(id, "mac_menu_bar")); err != nil {
+			return model.Device{}, err
+		}
+		if err := s.SaveLayout(ctx, id, "mobile_web", DefaultLayoutWidgets(id, "mobile_web")); err != nil {
+			return model.Device{}, err
+		}
 	} else if err != nil {
 		return model.Device{}, err
 	} else {
-		_, err = s.db.ExecContext(ctx, `update devices set name = ?, last_seen = ?, capabilities = ?, metadata = ? where id = ?`,
-			name, now, string(caps), string(meta), id)
-		if err != nil {
+		if _, err := s.db.ExecContext(ctx, `update devices set name = ?, last_seen = ?, capabilities = ?, metadata = ? where id = ?`,
+			name, now, string(caps), string(meta), id); err != nil {
 			return model.Device{}, err
+		}
+		if _, err := s.GetLayout(ctx, id, "mac_menu_bar"); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_ = s.SaveLayout(ctx, id, "mac_menu_bar", DefaultLayoutWidgets(id, "mac_menu_bar"))
+			}
+		}
+		if _, err := s.GetLayout(ctx, id, "mobile_web"); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				_ = s.SaveLayout(ctx, id, "mobile_web", DefaultLayoutWidgets(id, "mobile_web"))
+			}
 		}
 	}
 
@@ -257,14 +323,13 @@ func severityRank(severity string) int {
 
 func (s *Store) SaveSnapshot(ctx context.Context, deviceID string, snapshot model.Snapshot) error {
 	payload, _ := json.Marshal(snapshot)
-	_, err := s.db.ExecContext(ctx, `
+	if _, err := s.db.ExecContext(ctx, `
 		insert into snapshots (device_id, payload, collected_at) values (?, ?, ?)
 		on conflict(device_id) do update set payload = excluded.payload, collected_at = excluded.collected_at`,
-		deviceID, string(payload), snapshot.CollectedAt.Format(time.RFC3339))
-	if err != nil {
+		deviceID, string(payload), snapshot.CollectedAt.Format(time.RFC3339)); err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, `update devices set last_seen = ? where id = ?`, time.Now().UTC().Format(time.RFC3339), deviceID)
+	_, err := s.db.ExecContext(ctx, `update devices set last_seen = ? where id = ?`, time.Now().UTC().Format(time.RFC3339), deviceID)
 	return err
 }
 
@@ -302,6 +367,7 @@ func (s *Store) SaveWidgets(ctx context.Context, deviceID string, widgets []mode
 		return err
 	}
 	defer tx.Rollback()
+
 	if _, err := tx.ExecContext(ctx, `delete from widgets where device_id = ?`, deviceID); err != nil {
 		return err
 	}
@@ -351,6 +417,7 @@ func (s *Store) SaveAlertRules(ctx context.Context, deviceID string, rules []mod
 		return err
 	}
 	defer tx.Rollback()
+
 	if _, err := tx.ExecContext(ctx, `delete from alert_rules where device_id = ?`, deviceID); err != nil {
 		return err
 	}
@@ -371,40 +438,35 @@ func (s *Store) SaveAlertRules(ctx context.Context, deviceID string, rules []mod
 }
 
 func (s *Store) SaveEvent(ctx context.Context, event model.Event) error {
-	var resolved *string
+	var (
+		resolved     *string
+		acknowledged *string
+		by           *string
+	)
 	if event.ResolvedAt != nil {
 		value := event.ResolvedAt.Format(time.RFC3339)
 		resolved = &value
 	}
+	if event.AcknowledgedAt != nil {
+		value := event.AcknowledgedAt.Format(time.RFC3339)
+		acknowledged = &value
+	}
+	if event.AcknowledgedBy != "" {
+		value := event.AcknowledgedBy
+		by = &value
+	}
 	_, err := s.db.ExecContext(ctx, `
-		insert into events (id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key)
-		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		event.ID, event.DeviceID, event.AlertRuleID, event.Type, event.Severity, event.Title, event.Body, event.CreatedAt.Format(time.RFC3339), resolved, event.DedupeKey)
+		insert into events (id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key, acknowledged_at, acknowledged_by)
+		values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.ID, event.DeviceID, event.AlertRuleID, event.Type, event.Severity, event.Title, event.Body, event.CreatedAt.Format(time.RFC3339), resolved, event.DedupeKey, acknowledged, by)
 	return err
 }
 
 func (s *Store) FindActiveEventByDedupeKey(ctx context.Context, dedupeKey string) (*model.Event, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key
+		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key, acknowledged_at, acknowledged_by
 		from events where dedupe_key = ? and resolved_at is null`, dedupeKey)
-	var (
-		event      model.Event
-		createdAt  string
-		resolvedAt sql.NullString
-	)
-	err := row.Scan(&event.ID, &event.DeviceID, &event.AlertRuleID, &event.Type, &event.Severity, &event.Title, &event.Body, &createdAt, &resolvedAt, &event.DedupeKey)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	event.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-	if resolvedAt.Valid {
-		when, _ := time.Parse(time.RFC3339, resolvedAt.String)
-		event.ResolvedAt = &when
-	}
-	return &event, nil
+	return scanEventRow(row)
 }
 
 func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
@@ -412,9 +474,15 @@ func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
 	return err
 }
 
+func (s *Store) AcknowledgeEvent(ctx context.Context, eventID, actor string) error {
+	_, err := s.db.ExecContext(ctx, `update events set acknowledged_at = ?, acknowledged_by = ? where id = ?`,
+		time.Now().UTC().Format(time.RFC3339), actor, eventID)
+	return err
+}
+
 func (s *Store) ListEvents(ctx context.Context, deviceID string) ([]model.Event, error) {
 	query := `
-		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key
+		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key, acknowledged_at, acknowledged_by
 		from events`
 	var args []interface{}
 	if deviceID != "" {
@@ -430,27 +498,18 @@ func (s *Store) ListEvents(ctx context.Context, deviceID string) ([]model.Event,
 
 	var events []model.Event
 	for rows.Next() {
-		var (
-			event      model.Event
-			createdAt  string
-			resolvedAt sql.NullString
-		)
-		if err := rows.Scan(&event.ID, &event.DeviceID, &event.AlertRuleID, &event.Type, &event.Severity, &event.Title, &event.Body, &createdAt, &resolvedAt, &event.DedupeKey); err != nil {
+		event, err := scanEventRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		event.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		if resolvedAt.Valid {
-			when, _ := time.Parse(time.RFC3339, resolvedAt.String)
-			event.ResolvedAt = &when
-		}
-		events = append(events, event)
+		events = append(events, *event)
 	}
 	return events, rows.Err()
 }
 
 func (s *Store) ListActiveEvents(ctx context.Context) ([]model.Event, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key
+		select id, device_id, alert_rule_id, type, severity, title, body, created_at, resolved_at, dedupe_key, acknowledged_at, acknowledged_by
 		from events where resolved_at is null order by created_at desc`)
 	if err != nil {
 		return nil, err
@@ -459,16 +518,11 @@ func (s *Store) ListActiveEvents(ctx context.Context) ([]model.Event, error) {
 
 	var events []model.Event
 	for rows.Next() {
-		var (
-			event     model.Event
-			createdAt string
-			resolved  sql.NullString
-		)
-		if err := rows.Scan(&event.ID, &event.DeviceID, &event.AlertRuleID, &event.Type, &event.Severity, &event.Title, &event.Body, &createdAt, &resolved, &event.DedupeKey); err != nil {
+		event, err := scanEventRow(rows)
+		if err != nil {
 			return nil, err
 		}
-		event.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
-		events = append(events, event)
+		events = append(events, *event)
 	}
 	return events, rows.Err()
 }
@@ -501,6 +555,7 @@ func (s *Store) SaveNotificationChannels(ctx context.Context, channels []model.N
 		return err
 	}
 	defer tx.Rollback()
+
 	if _, err := tx.ExecContext(ctx, `delete from notification_channels`); err != nil {
 		return err
 	}
@@ -515,6 +570,213 @@ func (s *Store) SaveNotificationChannels(ctx context.Context, channels []model.N
 		}
 	}
 	return tx.Commit()
+}
+
+func (s *Store) SaveLayout(ctx context.Context, deviceID, target string, widgets []model.Widget) error {
+	if target == "" {
+		return errors.New("layout target is required")
+	}
+	sort.Slice(widgets, func(i, j int) bool { return widgets[i].Order < widgets[j].Order })
+	payload, _ := json.Marshal(widgets)
+	now := time.Now().UTC().Format(time.RFC3339)
+	_, err := s.db.ExecContext(ctx, `
+		insert into layouts (id, device_id, target, widgets, updated_at) values (?, ?, ?, ?, ?)
+		on conflict(device_id, target) do update set widgets = excluded.widgets, updated_at = excluded.updated_at`,
+		uuid.NewString(), deviceID, target, string(payload), now)
+	return err
+}
+
+func (s *Store) GetLayout(ctx context.Context, deviceID, target string) (model.Layout, error) {
+	var (
+		layout    model.Layout
+		widgetsJS string
+		updatedAt string
+	)
+	err := s.db.QueryRowContext(ctx, `select id, device_id, target, widgets, updated_at from layouts where device_id = ? and target = ?`, deviceID, target).
+		Scan(&layout.ID, &layout.DeviceID, &layout.Target, &widgetsJS, &updatedAt)
+	if err != nil {
+		return model.Layout{}, err
+	}
+	_ = json.Unmarshal([]byte(widgetsJS), &layout.Widgets)
+	layout.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return layout, nil
+}
+
+func (s *Store) BuildBootstrap(ctx context.Context, deviceID, target string) (model.BootstrapResponse, error) {
+	devices, err := s.ListDevices(ctx)
+	if err != nil {
+		return model.BootstrapResponse{}, err
+	}
+	if deviceID == "" && len(devices) > 0 {
+		deviceID = devices[0].ID
+	}
+
+	response := model.BootstrapResponse{
+		Devices: devices,
+		Events:  []model.Event{},
+	}
+	if deviceID == "" {
+		return response, nil
+	}
+
+	device, err := s.GetDeviceByID(ctx, deviceID)
+	if err != nil {
+		return model.BootstrapResponse{}, err
+	}
+	layout, err := s.GetLayout(ctx, deviceID, target)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			defaults := DefaultLayoutWidgets(deviceID, target)
+			if saveErr := s.SaveLayout(ctx, deviceID, target, defaults); saveErr == nil {
+				layout, err = s.GetLayout(ctx, deviceID, target)
+			}
+		}
+		if err != nil {
+			return model.BootstrapResponse{}, err
+		}
+	}
+	events, err := s.ListEvents(ctx, deviceID)
+	if err != nil {
+		return model.BootstrapResponse{}, err
+	}
+	active, err := s.ListActiveEvents(ctx)
+	if err != nil {
+		return model.BootstrapResponse{}, err
+	}
+
+	response.Device = &device
+	response.Layout = &layout
+	response.Events = events
+	for _, event := range active {
+		if event.DeviceID != deviceID {
+			continue
+		}
+		response.AlertSummary.ActiveCount++
+		if severityRank(event.Severity) > severityRank(response.AlertSummary.HighestLevel) {
+			response.AlertSummary.HighestLevel = event.Severity
+			response.AlertSummary.LatestMessage = event.Title
+		}
+	}
+	if response.AlertSummary.HighestLevel == "" {
+		response.AlertSummary.HighestLevel = "healthy"
+	}
+	return response, nil
+}
+
+func (s *Store) IssueClientToken(ctx context.Context, name, kind string) (model.ClientToken, error) {
+	raw := randomTokenString()
+	now := time.Now().UTC()
+	client := model.ClientToken{
+		ID:        uuid.NewString(),
+		Name:      name,
+		Kind:      kind,
+		Token:     raw,
+		CreatedAt: now,
+		Revoked:   false,
+	}
+	_, err := s.db.ExecContext(ctx, `
+		insert into client_tokens (id, name, kind, token_hash, created_at, last_used_at, revoked)
+		values (?, ?, ?, ?, ?, ?, ?)`,
+		client.ID, client.Name, client.Kind, hashToken(raw), client.CreatedAt.Format(time.RFC3339), nil, 0)
+	if err != nil {
+		return model.ClientToken{}, err
+	}
+	return client, nil
+}
+
+func (s *Store) ListClientTokens(ctx context.Context) ([]model.ClientToken, error) {
+	rows, err := s.db.QueryContext(ctx, `select id, name, kind, created_at, last_used_at, revoked from client_tokens order by created_at desc`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tokens []model.ClientToken
+	for rows.Next() {
+		var (
+			client    model.ClientToken
+			createdAt string
+			lastUsed  sql.NullString
+			revoked   int
+		)
+		if err := rows.Scan(&client.ID, &client.Name, &client.Kind, &createdAt, &lastUsed, &revoked); err != nil {
+			return nil, err
+		}
+		client.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+		client.Revoked = revoked == 1
+		if lastUsed.Valid {
+			when, _ := time.Parse(time.RFC3339, lastUsed.String)
+			client.LastUsedAt = &when
+		}
+		tokens = append(tokens, client)
+	}
+	return tokens, rows.Err()
+}
+
+func (s *Store) ValidateClientToken(ctx context.Context, raw string) (*model.ClientToken, error) {
+	row := s.db.QueryRowContext(ctx, `select id, name, kind, created_at, last_used_at, revoked from client_tokens where token_hash = ?`, hashToken(raw))
+	var (
+		client    model.ClientToken
+		createdAt string
+		lastUsed  sql.NullString
+		revoked   int
+	)
+	err := row.Scan(&client.ID, &client.Name, &client.Kind, &createdAt, &lastUsed, &revoked)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	client.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	client.Revoked = revoked == 1
+	if client.Revoked {
+		return nil, nil
+	}
+	if lastUsed.Valid {
+		when, _ := time.Parse(time.RFC3339, lastUsed.String)
+		client.LastUsedAt = &when
+	}
+	_, _ = s.db.ExecContext(ctx, `update client_tokens set last_used_at = ? where id = ?`, time.Now().UTC().Format(time.RFC3339), client.ID)
+	return &client, nil
+}
+
+func (s *Store) RevokeClientToken(ctx context.Context, id string) error {
+	_, err := s.db.ExecContext(ctx, `update client_tokens set revoked = 1 where id = ?`, id)
+	return err
+}
+
+func scanEventRow(scanner interface {
+	Scan(dest ...interface{}) error
+}) (*model.Event, error) {
+	var (
+		event        model.Event
+		createdAt    string
+		resolvedAt   sql.NullString
+		acknowledged sql.NullString
+		ackBy        sql.NullString
+	)
+	if err := scanner.Scan(&event.ID, &event.DeviceID, &event.AlertRuleID, &event.Type, &event.Severity, &event.Title, &event.Body, &createdAt, &resolvedAt, &event.DedupeKey, &acknowledged, &ackBy); err != nil {
+		return nil, err
+	}
+	event.CreatedAt, _ = time.Parse(time.RFC3339, createdAt)
+	if resolvedAt.Valid {
+		when, _ := time.Parse(time.RFC3339, resolvedAt.String)
+		event.ResolvedAt = &when
+	}
+	if acknowledged.Valid {
+		when, _ := time.Parse(time.RFC3339, acknowledged.String)
+		event.AcknowledgedAt = &when
+	}
+	if ackBy.Valid {
+		event.AcknowledgedBy = ackBy.String
+	}
+	return &event, nil
+}
+
+func hashToken(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
 }
 
 func boolToInt(value bool) int {

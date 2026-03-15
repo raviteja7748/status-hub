@@ -10,6 +10,21 @@ type AuthResponse struct {
 	Token string `json:"token"`
 }
 
+type ClientTokenCreateRequest struct {
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+
+type ClientToken struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Kind       string     `json:"kind"`
+	Token      string     `json:"token,omitempty"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	Revoked    bool       `json:"revoked"`
+}
+
 type Device struct {
 	ID           string            `json:"id"`
 	Name         string            `json:"name"`
@@ -108,16 +123,18 @@ type AlertRule struct {
 }
 
 type Event struct {
-	ID          string     `json:"id"`
-	DeviceID    string     `json:"deviceId"`
-	AlertRuleID string     `json:"alertRuleId,omitempty"`
-	Type        string     `json:"type"`
-	Severity    string     `json:"severity"`
-	Title       string     `json:"title"`
-	Body        string     `json:"body"`
-	CreatedAt   time.Time  `json:"createdAt"`
-	ResolvedAt  *time.Time `json:"resolvedAt,omitempty"`
-	DedupeKey   string     `json:"dedupeKey"`
+	ID             string     `json:"id"`
+	DeviceID       string     `json:"deviceId"`
+	AlertRuleID    string     `json:"alertRuleId,omitempty"`
+	Type           string     `json:"type"`
+	Severity       string     `json:"severity"`
+	Title          string     `json:"title"`
+	Body           string     `json:"body"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ResolvedAt     *time.Time `json:"resolvedAt,omitempty"`
+	AcknowledgedAt *time.Time `json:"acknowledgedAt,omitempty"`
+	AcknowledgedBy string     `json:"acknowledgedBy,omitempty"`
+	DedupeKey      string     `json:"dedupeKey"`
 }
 
 type NotificationChannel struct {
@@ -126,6 +143,28 @@ type NotificationChannel struct {
 	Name    string                 `json:"name"`
 	Enabled bool                   `json:"enabled"`
 	Config  map[string]interface{} `json:"config"`
+}
+
+type Layout struct {
+	ID        string    `json:"id"`
+	DeviceID  string    `json:"deviceId"`
+	Target    string    `json:"target"`
+	Widgets   []Widget  `json:"widgets"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type AlertSummary struct {
+	ActiveCount   int    `json:"activeCount"`
+	HighestLevel  string `json:"highestLevel"`
+	LatestMessage string `json:"latestMessage,omitempty"`
+}
+
+type BootstrapResponse struct {
+	Devices      []Device     `json:"devices"`
+	Device       *Device      `json:"device,omitempty"`
+	Layout       *Layout      `json:"layout,omitempty"`
+	AlertSummary AlertSummary `json:"alertSummary"`
+	Events       []Event      `json:"events"`
 }
 
 type CollectorHello struct {

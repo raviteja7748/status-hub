@@ -77,6 +77,20 @@ func DefaultWidgets(deviceID string) []model.Widget {
 	}
 }
 
+func DefaultLayoutWidgets(deviceID, target string) []model.Widget {
+	switch target {
+	case "mobile_web":
+		return []model.Widget{
+			newWidget(deviceID, "overview", "Overview", 0, "wide"),
+			newWidget(deviceID, "temperature", "Temperature", 1, "small"),
+			newWidget(deviceID, "battery", "Battery + Power", 2, "small"),
+			newWidget(deviceID, "docker", "Docker", 3, "wide"),
+		}
+	default:
+		return DefaultWidgets(deviceID)
+	}
+}
+
 func newWidget(deviceID, kind, title string, order int, size string) model.Widget {
 	return model.Widget{
 		ID:       uuid.NewString(),

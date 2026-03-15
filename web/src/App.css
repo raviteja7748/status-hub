@@ -66,6 +66,10 @@
   gap: 1rem;
 }
 
+.content-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
 .panel {
   padding: 1.25rem;
 }
@@ -119,6 +123,10 @@
   padding: 0.9rem 1rem;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.03);
+}
+
+.widget-row.single {
+  grid-template-columns: 1fr;
 }
 
 .widget-row {
@@ -213,6 +221,10 @@ label input[type='checkbox'] {
 .error {
   color: #ff908b;
   margin-top: 1rem;
+}
+
+.acked {
+  color: #8ad8a1;
 }
 
 @media (max-width: 960px) {

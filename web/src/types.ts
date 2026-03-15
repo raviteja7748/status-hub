@@ -1,54 +1,19 @@
 export type Snapshot = {
   collectedAt: string
   hostname: string
-  uptimeSec: number
-  cpu: {
-    usagePercent: number
-    cores: number
-  }
-  memory: {
-    usedBytes: number
-    totalBytes: number
-    usedPct: number
-  }
-  storage: Array<{
-    path: string
-    usedBytes: number
-    totalBytes: number
-    usedPct: number
-  }>
-  network: Array<{
-    name: string
-    rxBytes: number
-    txBytes: number
-  }>
-  temperatures: Array<{
-    name: string
-    celsius: number
-  }>
-  battery?: {
-    percent: number
-    charging: boolean
-    source: string
-  }
-  docker: Array<{
-    name: string
-    image: string
-    state: string
-    status: string
-    healthy: boolean
-    restartCount: number
-  }>
+  cpu: { usagePercent: number; cores: number }
+  memory: { usedPct: number; usedBytes: number; totalBytes: number }
+  temperatures: Array<{ name: string; celsius: number }>
+  battery?: { percent: number; charging: boolean; source: string }
+  docker: Array<{ name: string; status: string; healthy: boolean }>
 }
 
 export type Device = {
   id: string
   name: string
-  lastSeen: string
   online: boolean
-  capabilities: Record<string, boolean>
-  snapshot?: Snapshot
   alertState: string
+  snapshot?: Snapshot
 }
 
 export type Widget = {
@@ -62,37 +27,35 @@ export type Widget = {
   settings: Record<string, unknown>
 }
 
-export type AlertRule = {
+export type Layout = {
   id: string
   deviceId: string
-  title: string
-  metric: string
-  condition: string
-  threshold: number
-  duration: number
-  severity: string
-  channels: string[]
-  enabled: boolean
-  resolveBehavior: string
+  target: string
+  widgets: Widget[]
+  updatedAt: string
 }
 
 export type EventRecord = {
   id: string
   deviceId: string
-  alertRuleId?: string
-  type: string
-  severity: string
   title: string
   body: string
+  severity: string
+  type: string
   createdAt: string
   resolvedAt?: string
+  acknowledgedAt?: string
+  acknowledgedBy?: string
 }
 
-export type NotificationChannel = {
-  id: string
-  kind: string
-  name: string
-  enabled: boolean
-  config: Record<string, unknown>
+export type Bootstrap = {
+  devices: Device[]
+  device?: Device
+  layout?: Layout
+  alertSummary: {
+    activeCount: number
+    highestLevel: string
+    latestMessage?: string
+  }
+  events: EventRecord[]
 }
-

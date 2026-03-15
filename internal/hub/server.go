@@ -8,14 +8,31 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/elite/status/internal/model"
+	"github.com/elite/status/internal/webdist"
 	"github.com/gorilla/websocket"
 )
+
+type authMode string
+
+const (
+	authModeSession authMode = "session"
+	authModeClient  authMode = "client"
+)
+
+type authIdentity struct {
+	Mode authMode
+	ID   string
+	Name string
+}
+
+type contextKey string
+
+const authContextKey contextKey = "authIdentity"
 
 type Config struct {
 	AdminPassword string
@@ -51,11 +68,16 @@ func (s *Server) Routes() http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("/api/sessions", s.handleSessionLogin)
+	mux.HandleFunc("/api/bootstrap", s.withAuth(s.handleBootstrap))
 	mux.HandleFunc("/api/devices", s.withAuth(s.handleDevices))
 	mux.HandleFunc("/api/widgets", s.withAuth(s.handleWidgets))
+	mux.HandleFunc("/api/layouts", s.withAuth(s.handleLayouts))
 	mux.HandleFunc("/api/alerts", s.withAuth(s.handleAlerts))
 	mux.HandleFunc("/api/events", s.withAuth(s.handleEvents))
-	mux.HandleFunc("/api/notification-channels", s.withAuth(s.handleChannels))
+	mux.HandleFunc("/api/events/", s.withAuth(s.handleEventActions))
+	mux.HandleFunc("/api/notification-channels", s.withAdminAuth(s.handleChannels))
+	mux.HandleFunc("/api/client-tokens", s.withAdminAuth(s.handleClientTokens))
+	mux.HandleFunc("/api/client-tokens/", s.withAdminAuth(s.handleClientTokenActions))
 	mux.HandleFunc("/ws/device", s.handleDeviceSocket)
 	mux.HandleFunc("/ws/stream", s.handleClientStream)
 	mux.Handle("/", staticHandler())
@@ -85,16 +107,53 @@ func (s *Server) handleSessionLogin(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if token == "" {
-			token = r.URL.Query().Get("token")
+		identity, ok, err := s.authenticate(r)
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
 		}
-		if !s.validSession(token) {
+		if !ok {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
-		next(w, r)
+		next(w, r.WithContext(context.WithValue(r.Context(), authContextKey, identity)))
 	}
+}
+
+func (s *Server) withAdminAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		identity, ok, err := s.authenticate(r)
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		if !ok || identity.Mode != authModeSession {
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "admin session required"})
+			return
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), authContextKey, identity)))
+	}
+}
+
+func (s *Server) authenticate(r *http.Request) (authIdentity, bool, error) {
+	token := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if token == "" {
+		token = r.URL.Query().Get("token")
+	}
+	if token == "" {
+		return authIdentity{}, false, nil
+	}
+	if s.validSession(token) {
+		return authIdentity{Mode: authModeSession, ID: token, Name: "admin"}, true, nil
+	}
+	client, err := s.store.ValidateClientToken(r.Context(), token)
+	if err != nil {
+		return authIdentity{}, false, err
+	}
+	if client != nil {
+		return authIdentity{Mode: authModeClient, ID: client.ID, Name: client.Name}, true, nil
+	}
+	return authIdentity{}, false, nil
 }
 
 func (s *Server) validSession(token string) bool {
@@ -111,10 +170,29 @@ func (s *Server) validSession(token string) bool {
 	return true
 }
 
+func identityFromContext(ctx context.Context) authIdentity {
+	identity, _ := ctx.Value(authContextKey).(authIdentity)
+	return identity
+}
+
+func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
+	target := r.URL.Query().Get("target")
+	if target == "" {
+		target = "mobile_web"
+	}
+	deviceID := r.URL.Query().Get("deviceId")
+	bootstrap, err := s.store.BuildBootstrap(r.Context(), deviceID, target)
+	if err != nil {
+		s.writeServerError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, bootstrap)
+}
+
 func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 	devices, err := s.store.ListDevices(r.Context())
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeServerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, devices)
@@ -130,7 +208,7 @@ func (s *Server) handleWidgets(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		widgets, err := s.store.ListWidgets(r.Context(), deviceID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, widgets)
@@ -141,10 +219,46 @@ func (s *Server) handleWidgets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.store.SaveWidgets(r.Context(), deviceID, widgets); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleLayouts(w http.ResponseWriter, r *http.Request) {
+	deviceID := r.URL.Query().Get("deviceId")
+	target := r.URL.Query().Get("target")
+	if deviceID == "" || target == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "deviceId and target are required"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		layout, err := s.store.GetLayout(r.Context(), deviceID, target)
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, layout)
+	case http.MethodPut:
+		var widgets []model.Widget
+		if err := json.NewDecoder(r.Body).Decode(&widgets); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid layout payload"})
+			return
+		}
+		if err := s.store.SaveLayout(r.Context(), deviceID, target, widgets); err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		layout, err := s.store.GetLayout(r.Context(), deviceID, target)
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, layout)
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
@@ -160,7 +274,7 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		rules, err := s.store.ListAlertRules(r.Context(), deviceID)
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, rules)
@@ -171,7 +285,7 @@ func (s *Server) handleAlerts(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.store.SaveAlertRules(r.Context(), deviceID, rules); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -184,10 +298,34 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	deviceID := r.URL.Query().Get("deviceId")
 	events, err := s.store.ListEvents(r.Context(), deviceID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		s.writeServerError(w, r, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, events)
+}
+
+func (s *Server) handleEventActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/events/")
+	if !strings.HasSuffix(path, "/ack") {
+		http.NotFound(w, r)
+		return
+	}
+	eventID := strings.TrimSuffix(path, "/ack")
+	eventID = strings.TrimSuffix(eventID, "/")
+	if eventID == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "event id is required"})
+		return
+	}
+	identity := identityFromContext(r.Context())
+	if err := s.store.AcknowledgeEvent(r.Context(), eventID, identity.Name); err != nil {
+		s.writeServerError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +333,7 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
 	case http.MethodGet:
 		channels, err := s.store.ListNotificationChannels(r.Context())
 		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, channels)
@@ -206,13 +344,62 @@ func (s *Server) handleChannels(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := s.store.SaveNotificationChannels(r.Context(), channels); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			s.writeServerError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleClientTokens(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		tokens, err := s.store.ListClientTokens(r.Context())
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, tokens)
+	case http.MethodPost:
+		var req model.ClientTokenCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid token payload"})
+			return
+		}
+		if req.Name == "" {
+			req.Name = "client"
+		}
+		if req.Kind == "" {
+			req.Kind = "mac_menu_bar"
+		}
+		token, err := s.store.IssueClientToken(r.Context(), req.Name, req.Kind)
+		if err != nil {
+			s.writeServerError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, token)
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleClientTokenActions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.TrimPrefix(r.URL.Path, "/api/client-tokens/")
+	if id == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "token id is required"})
+		return
+	}
+	if err := s.store.RevokeClientToken(r.Context(), id); err != nil {
+		s.writeServerError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Server) handleDeviceSocket(w http.ResponseWriter, r *http.Request) {
@@ -358,8 +545,12 @@ func contains(values []string, target string) bool {
 }
 
 func (s *Server) handleClientStream(w http.ResponseWriter, r *http.Request) {
-	token := r.URL.Query().Get("token")
-	if !s.validSession(token) {
+	_, ok, err := s.authenticate(r)
+	if err != nil {
+		s.writeServerError(w, r, err)
+		return
+	}
+	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
@@ -399,6 +590,11 @@ func (s *Server) broadcast(message model.StreamMessage) {
 	}
 }
 
+func (s *Server) writeServerError(w http.ResponseWriter, r *http.Request, err error) {
+	log.Printf("500 %s %s: %v", r.Method, r.URL.Path, err)
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+}
+
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -411,6 +607,10 @@ func randomToken() string {
 	return hex.EncodeToString(buf)
 }
 
+func randomTokenString() string {
+	return randomToken()
+}
+
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -420,7 +620,7 @@ func loggingMiddleware(next http.Handler) http.Handler {
 }
 
 func staticHandler() http.Handler {
-	sub, err := fs.Sub(os.DirFS("."), "web/dist")
+	sub, err := webdist.Sub()
 	if err != nil {
 		log.Printf("web assets unavailable: %v", err)
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
