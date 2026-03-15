@@ -12,11 +12,19 @@ export function useStatus() {
   const query = useQuery({
     queryKey: ['bootstrap', selectedDeviceId],
     queryFn: async () => {
-      const next = await api.bootstrap(baseUrl, token, selectedDeviceId)
-      if (!selectedDeviceId && next.device?.id) {
-        setSelectedDeviceId(next.device.id)
+      try {
+        const next = await api.bootstrap(baseUrl, token, selectedDeviceId)
+        if (next.device?.id && next.device.id !== selectedDeviceId) {
+          setSelectedDeviceId(next.device.id)
+        }
+        return next
+      } catch (error) {
+        if (selectedDeviceId) {
+          setSelectedDeviceId('')
+          return api.bootstrap(baseUrl, token)
+        }
+        throw error
       }
-      return next
     },
     enabled: !!token,
   })

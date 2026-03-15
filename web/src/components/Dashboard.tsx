@@ -4,15 +4,26 @@ import { Overview } from './Overview'
 import { WidgetList } from './WidgetList'
 import { AlertHistory } from './AlertHistory'
 import { useAuthStore } from '../store'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { LayoutDashboard, Bell, Settings } from 'lucide-react'
 
 type Tab = 'dashboard' | 'alerts' | 'settings'
 
 export function Dashboard() {
   const { data: bootstrap, isLoading, error } = useStatus()
-  const { token } = useAuthStore()
+  const { token, signOut } = useAuthStore()
   const [activeTab, setActiveTab] = useState<Tab>('dashboard')
+
+  useEffect(() => {
+    if (!error) return
+
+    const message = (error as Error).message
+    const isAuthFailure = message.includes('401') || message.includes('403')
+
+    if (isAuthFailure) {
+      signOut()
+    }
+  }, [error, signOut])
 
   if (!token) return null
 

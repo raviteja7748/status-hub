@@ -34,6 +34,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   signOut: () => {
     localStorage.removeItem('status.token')
     set({ token: '' })
+    useAppStore.setState({ selectedDeviceId: '' })
   },
 }))
 
