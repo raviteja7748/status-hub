@@ -6,6 +6,14 @@ interface WidgetListProps {
   activeDevice?: Device
 }
 
+function formatBytes(bytes: number) {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
+}
+
 function widgetValue(widget: Widget, device?: Device) {
   const snapshot = device?.snapshot
   switch (widget.kind) {
@@ -24,9 +32,12 @@ function widgetValue(widget: Widget, device?: Device) {
         ? `${snapshot.docker.filter((container) => container.healthy).length}/${snapshot.docker.length} healthy`
         : 'No containers'
     case 'storage':
-      return 'Connected'
+      return snapshot?.storage[0]
+        ? `${snapshot.storage[0].usedPct.toFixed(0)}% full`
+        : 'No storage'
     case 'network':
-      return 'Active'
+      const def = snapshot?.network.find(n => n.isDefault)
+      return def ? `Up: ${formatBytes(def.txBytes)}` : 'No network'
     default:
       return 'Live'
   }
@@ -61,9 +72,21 @@ export function WidgetList({ bootstrap, activeDevice }: WidgetListProps) {
             <div className="widget-tile-icon">
               <WidgetIcon kind={widget.kind} />
             </div>
-            <div className="widget-tile-content">
+            <div className="widget-tile-content" style={{ flex: 1 }}>
               <span className="widget-tile-title">{widget.title}</span>
               <strong className="widget-tile-value">{widgetValue(widget, activeDevice)}</strong>
+              
+              {widget.kind === 'storage' && activeDevice?.snapshot?.storage[0] && (
+                <div className="mini-progress-bg" style={{ marginTop: '8px' }}>
+                  <div 
+                    className="mini-progress-fill" 
+                    style={{ 
+                      width: `${activeDevice.snapshot.storage[0].usedPct}%`,
+                      background: activeDevice.snapshot.storage[0].usedPct > 90 ? '#ef4444' : '#8b5cf6'
+                    }} 
+                  />
+                </div>
+              )}
             </div>
           </div>
         ))}

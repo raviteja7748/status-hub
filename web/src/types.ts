@@ -1,11 +1,55 @@
+export type CPUStats = {
+  usagePercent: number
+  cores: number
+}
+
+export type MemoryStats = {
+  usedPct: number
+  usedBytes: number
+  totalBytes: number
+}
+
+export type DiskStats = {
+  path: string
+  usedBytes: number
+  totalBytes: number
+  usedPct: number
+}
+
+export type NetworkStats = {
+  name: string
+  rxBytes: number
+  txBytes: number
+  isDefault: boolean
+}
+
+export type TemperatureStat = {
+  name: string
+  celsius: number
+}
+
+export type BatteryStats = {
+  percent: number
+  charging: boolean
+  source: string
+}
+
+export type ContainerStatus = {
+  name: string
+  status: string
+  healthy: boolean
+}
+
 export type Snapshot = {
   collectedAt: string
   hostname: string
-  cpu: { usagePercent: number; cores: number }
-  memory: { usedPct: number; usedBytes: number; totalBytes: number }
-  temperatures: Array<{ name: string; celsius: number }>
-  battery?: { percent: number; charging: boolean; source: string }
-  docker: Array<{ name: string; status: string; healthy: boolean }>
+  cpu: CPUStats
+  memory: MemoryStats
+  storage: DiskStats[]
+  network: NetworkStats[]
+  temperatures: TemperatureStat[]
+  battery?: BatteryStats
+  docker: ContainerStatus[]
 }
 
 export type Device = {

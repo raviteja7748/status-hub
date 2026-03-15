@@ -415,6 +415,19 @@ label input[type='checkbox'] {
   to { opacity: 1; transform: translateY(0); }
 }
 
+.mini-progress-bg {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  transition: width 0.3s ease;
+}
+
 @media (max-width: 960px) {
   .shell {
     padding: 1rem;
