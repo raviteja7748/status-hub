@@ -48,14 +48,16 @@ export type EventRecord = {
   acknowledgedBy?: string
 }
 
+export type AlertSummary = {
+  activeCount: number
+  highestLevel: string
+  latestMessage?: string
+}
+
 export type Bootstrap = {
   devices: Device[]
   device?: Device
   layout?: Layout
-  alertSummary: {
-    activeCount: number
-    highestLevel: string
-    latestMessage?: string
-  }
+  alertSummary: AlertSummary
   events: EventRecord[]
 }
