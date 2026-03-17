@@ -656,7 +656,7 @@ func (s *Store) BuildBootstrap(ctx context.Context, deviceID, target string) (mo
 }
 
 func (s *Store) IssueClientToken(ctx context.Context, name, kind string) (model.ClientToken, error) {
-	raw := randomTokenString()
+	raw := randomToken()
 	now := time.Now().UTC()
 	client := model.ClientToken{
 		ID:        uuid.NewString(),

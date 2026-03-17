@@ -50,6 +50,8 @@ final class AppModel: ObservableObject {
     @AppStorage("selectedDeviceID") var selectedDeviceID = ""
     @AppStorage("pinnedWidgetIDsByScopeData") private var pinnedWidgetIDsByScopeData = "{}"
     @AppStorage("menuAccentStyle") var menuAccentStyle = "system"
+    @AppStorage("widgetDisplayStyle") var widgetDisplayStyle = "expanded"
+    @AppStorage("showWidgetBorders") var showWidgetBorders = true
 
     @Published var passwordInput = ""
     @Published var devices: [DeviceSummary] = []
@@ -138,6 +140,14 @@ final class AppModel: ObservableObject {
             return .orange
         case "red":
             return .red
+        case "purple":
+            return .purple
+        case "cyan":
+            return .cyan
+        case "pink":
+            return .pink
+        case "mint":
+            return .mint
         default:
             switch alertSummary.highestLevel {
             case "critical":
@@ -468,6 +478,20 @@ final class AppModel: ObservableObject {
         guard nextIndex >= 0, nextIndex < widgets.count else { return }
         var copy = widgets
         copy.swapAt(index, nextIndex)
+        widgets = copy.enumerated().map { position, widget in
+            var updated = widget
+            updated.order = position
+            return updated
+        }
+    }
+
+    func reorderWidget(fromID: String, toID: String) {
+        guard let fromIndex = widgets.firstIndex(where: { $0.id == fromID }),
+              let toIndex = widgets.firstIndex(where: { $0.id == toID }),
+              fromIndex != toIndex else { return }
+        var copy = widgets
+        let item = copy.remove(at: fromIndex)
+        copy.insert(item, at: toIndex)
         widgets = copy.enumerated().map { position, widget in
             var updated = widget
             updated.order = position

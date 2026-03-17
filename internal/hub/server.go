@@ -77,7 +77,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/client-tokens/", s.withAdminAuth(s.handleClientTokenActions))
 	mux.HandleFunc("/ws/device", s.handleDeviceSocket)
 	mux.HandleFunc("/ws/stream", s.handleClientStream)
-	mux.Handle("/", staticHandler())
 	return loggingMiddleware(mux)
 }
 
@@ -591,9 +590,6 @@ func randomToken() string {
 	return hex.EncodeToString(buf)
 }
 
-func randomTokenString() string {
-	return randomToken()
-}
 
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -603,21 +599,3 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func staticHandler() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.NotFound(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
-			http.NotFound(w, r)
-			return
-		}
-		if r.URL.Path == "/" {
-			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			_, _ = w.Write([]byte("Status Hub is menu-bar only. Use the macOS StatusMenu app."))
-			return
-		}
-		http.NotFound(w, r)
-	})
-}

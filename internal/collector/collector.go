@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -272,8 +271,4 @@ func readDockerContainers() []model.ContainerStatus {
 		})
 	}
 	return containers
-}
-
-func formatDuration(seconds uint64) string {
-	return fmt.Sprintf("%dh", seconds/3600)
 }

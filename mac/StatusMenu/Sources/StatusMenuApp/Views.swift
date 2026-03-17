@@ -1,5 +1,7 @@
 import SwiftUI
 
+// MARK: - Settings Window
+
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var draftBaseURL = ""
@@ -33,6 +35,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: General Tab
+
     private var generalTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -51,6 +55,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Display Tab
+
     private var displayTab: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
@@ -58,7 +64,8 @@ struct SettingsView: View {
                     title: "Display",
                     detail: "Shape what appears directly in the menu bar and how the dropdown feels."
                 )
-                appearanceSection
+                themeSection
+                widgetStyleSection
                 pinnedStatsSection
                 if !model.widgets.isEmpty {
                     layoutSection
@@ -68,6 +75,8 @@ struct SettingsView: View {
             .padding(20)
         }
     }
+
+    // MARK: Alerts Tab
 
     private var alertsTab: some View {
         ScrollView {
@@ -85,6 +94,8 @@ struct SettingsView: View {
             .padding(20)
         }
     }
+
+    // MARK: Admin Tab
 
     private var adminTab: some View {
         ScrollView {
@@ -104,6 +115,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Header
+
     private func settingsHeader(title: String, detail: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
@@ -113,6 +126,75 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
     }
+
+    // MARK: Theme (expanded accent picker)
+
+    private var themeSection: some View {
+        SettingsCard("Theme") {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Accent Color")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.secondary)
+
+                let colors: [(String, String, Color)] = [
+                    ("system", "Auto", .primary),
+                    ("blue", "Blue", .blue),
+                    ("green", "Green", .green),
+                    ("orange", "Orange", .orange),
+                    ("red", "Red", .red),
+                    ("purple", "Purple", .purple),
+                    ("cyan", "Cyan", .cyan),
+                    ("pink", "Pink", .pink),
+                    ("mint", "Mint", .mint),
+                ]
+
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 10) {
+                    ForEach(colors, id: \.0) { tag, label, color in
+                        VStack(spacing: 4) {
+                            Circle()
+                                .fill(color.opacity(tag == "system" ? 0.3 : 0.85))
+                                .frame(width: 28, height: 28)
+                                .overlay(
+                                    Circle()
+                                        .strokeBorder(
+                                            model.menuAccentStyle == tag ? color : .clear,
+                                            lineWidth: 2.5
+                                        )
+                                        .frame(width: 34, height: 34)
+                                )
+                                .onTapGesture { model.menuAccentStyle = tag }
+
+                            Text(label)
+                                .font(.caption2)
+                                .foregroundStyle(model.menuAccentStyle == tag ? .primary : .secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: Widget style
+
+    private var widgetStyleSection: some View {
+        SettingsCard("Widget Style") {
+            VStack(alignment: .leading, spacing: 12) {
+                Picker("Layout", selection: $model.widgetDisplayStyle) {
+                    Text("Expanded — full widget cards").tag("expanded")
+                    Text("Compact — small single-line rows").tag("compact")
+                }
+                .pickerStyle(.radioGroup)
+
+                Toggle("Show card borders", isOn: $model.showWidgetBorders)
+
+                Text("These settings affect how widgets render in the menu bar dropdown.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: Connection
 
     private var connectionSection: some View {
         SettingsCard("Connection") {
@@ -141,6 +223,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Auth
+
     private var authSection: some View {
         SettingsCard("Access") {
             VStack(alignment: .leading, spacing: 12) {
@@ -166,6 +250,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Device
+
     private var deviceSection: some View {
         SettingsCard("Device") {
             VStack(alignment: .leading, spacing: 12) {
@@ -186,23 +272,7 @@ struct SettingsView: View {
         }
     }
 
-    private var appearanceSection: some View {
-        SettingsCard("Appearance") {
-            VStack(alignment: .leading, spacing: 12) {
-                Picker("Accent style", selection: $model.menuAccentStyle) {
-                    Text("Automatic").tag("system")
-                    Text("Blue").tag("blue")
-                    Text("Green").tag("green")
-                    Text("Orange").tag("orange")
-                    Text("Red").tag("red")
-                }
-
-                Text("Pinned stats use this accent in the menu bar label and dropdown.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
+    // MARK: Pinned stats
 
     private var pinnedStatsSection: some View {
         SettingsCard("Pinned Top Bar Stats") {
@@ -255,6 +325,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Layout
+
     private var layoutSection: some View {
         SettingsCard("Dropdown Layout") {
             VStack(alignment: .leading, spacing: 10) {
@@ -286,6 +358,8 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: Alert rules
 
     private var alertRulesSection: some View {
         SettingsCard("Alert Rules") {
@@ -371,6 +445,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Recent events
+
     private var recentEventsSection: some View {
         SettingsCard("Recent Events") {
             VStack(alignment: .leading, spacing: 10) {
@@ -392,6 +468,8 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: Admin section
 
     private var adminSection: some View {
         SettingsCard("Admin Tools") {
@@ -421,6 +499,8 @@ struct SettingsView: View {
             }
         }
     }
+
+    // MARK: Notification channels
 
     private var notificationChannelsSection: some View {
         SettingsCard("Notification Channels") {
@@ -474,6 +554,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Client tokens
+
     private var clientTokensSection: some View {
         SettingsCard("Client Tokens") {
             VStack(alignment: .leading, spacing: 10) {
@@ -513,6 +595,8 @@ struct SettingsView: View {
         }
     }
 
+    // MARK: Footer
+
     private var footerError: some View {
         Group {
             if !model.errorMessage.isEmpty {
@@ -537,46 +621,72 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Menu Bar Dropdown (Premium Redesign)
+
 struct MenuContentView: View {
     @ObservedObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
+    @State private var draggedWidgetID: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(spacing: 0) {
             headerPanel
+                .padding(.horizontal, 14)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
 
             if model.isSignedIn {
-                if model.devices.count > 1 {
-                    deviceSection
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if model.devices.count > 1 {
+                            devicePicker
+                        }
+                        highlightStrip
+                        widgetGrid
+                        alertStrip
+                        controlBar
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 14)
                 }
-                highlightSection
-                widgetSection
-                alertSection
-                controlsSection
             } else {
-                signedOutSection
+                signedOutPanel
+                    .padding(14)
             }
         }
-        .padding(14)
-        .frame(width: 360)
+        .frame(width: 380)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(.white.opacity(0.06), lineWidth: 1)
+            }
+        )
         .task {
             await model.startIfNeeded()
         }
     }
 
+    // MARK: Header
+
     private var headerPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(model.currentDevice?.name ?? "Status Hub")
-                        .font(.headline)
-                    Text(model.statusDetail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 6) {
-                    StatusPill(label: model.connectionLabel, tint: headerTint)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(model.currentDevice?.name ?? "Status Hub")
+                    .font(.system(.headline, design: .rounded, weight: .bold))
+                Text(model.statusDetail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer()
+            VStack(alignment: .trailing, spacing: 6) {
+                StatusPill(label: model.connectionLabel, tint: headerTint)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(healthTint)
+                        .frame(width: 6, height: 6)
                     Text(model.alertSummary.highestLevel.capitalized)
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -584,10 +694,25 @@ struct MenuContentView: View {
             }
         }
         .padding(12)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.regularMaterial)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [headerTint.opacity(0.06), .clear],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            }
+        )
     }
 
-    private var deviceSection: some View {
+    // MARK: Device picker
+
+    private var devicePicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionLabel("Device")
             Picker("Device", selection: Binding(
@@ -602,7 +727,9 @@ struct MenuContentView: View {
         }
     }
 
-    private var highlightSection: some View {
+    // MARK: Highlights
+
+    private var highlightStrip: some View {
         VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Highlights")
             HStack(spacing: 8) {
@@ -613,35 +740,74 @@ struct MenuContentView: View {
                         tint: model.menuAccentColor
                     )
                 }
+                if model.pinnedWidgets.isEmpty {
+                    Text("Pin widgets in Settings")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
     }
 
-    private var widgetSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    // MARK: Widgets
+
+    private var widgetGrid: some View {
+        VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Live Details")
-            if model.widgets.filter(\.visible).isEmpty {
+
+            let visible = model.widgets.filter(\.visible).sorted(by: { $0.order < $1.order })
+            if visible.isEmpty {
                 EmptyStateRow(
                     symbol: "slider.horizontal.3",
                     title: "No visible widgets",
                     detail: "Open Settings to restore items."
                 )
             } else {
-                ForEach(model.widgets.filter(\.visible).sorted(by: { $0.order < $1.order })) { widget in
-                    let summary = model.widgetSummary(for: widget)
-                    MetricRow(
-                        title: widget.title,
-                        value: summary.value,
-                        detail: summary.detail,
-                        symbol: summary.symbol
-                    )
+                ForEach(visible) { widget in
+                    if model.widgetDisplayStyle == "compact" {
+                        CompactWidgetRow(
+                            widget: widget,
+                            model: model,
+                            showBorder: model.showWidgetBorders
+                        )
+                        .draggable(widget.id) {
+                            Text(widget.title)
+                                .font(.caption)
+                                .padding(6)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let fromID = items.first else { return false }
+                            model.reorderWidget(fromID: fromID, toID: widget.id)
+                            return true
+                        }
+                    } else {
+                        ExpandedWidgetCard(
+                            widget: widget,
+                            model: model,
+                            showBorder: model.showWidgetBorders
+                        )
+                        .draggable(widget.id) {
+                            Text(widget.title)
+                                .font(.caption)
+                                .padding(6)
+                                .background(.regularMaterial, in: Capsule())
+                        }
+                        .dropDestination(for: String.self) { items, _ in
+                            guard let fromID = items.first else { return false }
+                            model.reorderWidget(fromID: fromID, toID: widget.id)
+                            return true
+                        }
+                    }
                 }
             }
         }
     }
 
-    private var alertSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    // MARK: Alerts
+
+    private var alertStrip: some View {
+        VStack(alignment: .leading, spacing: 8) {
             sectionLabel("Recent Alerts")
             if model.events.isEmpty {
                 EmptyStateRow(
@@ -650,7 +816,7 @@ struct MenuContentView: View {
                     detail: "New events will appear here."
                 )
             } else {
-                ForEach(model.events.prefix(4)) { event in
+                ForEach(model.events.prefix(3)) { event in
                     EventRow(
                         event: event,
                         canAcknowledge: event.acknowledgedAt == nil,
@@ -663,36 +829,72 @@ struct MenuContentView: View {
         }
     }
 
-    private var controlsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            sectionLabel("Controls")
-            HStack {
-                Button("Refresh") { model.refresh() }
-                    .disabled(model.isRefreshing)
-                Button("Reconnect") { model.manualReconnect() }
-            }
+    // MARK: Controls
 
-            HStack {
-                SettingsLink {
-                    Text("Open Settings")
-                }
-                Button("Sign Out") { model.signOut() }
+    private var controlBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                model.refresh()
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+                    .font(.caption.weight(.medium))
             }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(model.isRefreshing)
+
+            Button {
+                model.manualReconnect()
+            } label: {
+                Label("Reconnect", systemImage: "wifi.exclamationmark")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+
+            Spacer()
+
+            Button {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "settings")
+            } label: {
+                Label("Settings", systemImage: "gearshape")
+                    .font(.caption.weight(.medium))
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+
+            Button {
+                model.signOut()
+            } label: {
+                Image(systemName: "rectangle.portrait.and.arrow.right")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .help("Sign Out")
         }
+        .padding(.top, 4)
     }
 
-    private var signedOutSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    // MARK: Signed out
+
+    private var signedOutPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
             EmptyStateRow(
                 symbol: "lock.circle",
                 title: "Not connected",
                 detail: "Open Settings, enter the hub URL, and create a secure client token."
             )
-            SettingsLink {
-                Text("Open Settings")
+            Button("Open Settings") {
+                NSApp.activate(ignoringOtherApps: true)
+                openWindow(id: "settings")
             }
+            .buttonStyle(.borderedProminent)
         }
     }
+
+    // MARK: Helpers
 
     private func sectionLabel(_ text: String) -> some View {
         Text(text.uppercased())
@@ -713,7 +915,20 @@ struct MenuContentView: View {
             return .red
         }
     }
+
+    private var healthTint: Color {
+        switch model.alertSummary.highestLevel {
+        case "critical":
+            return .red
+        case "warning":
+            return .orange
+        default:
+            return .green
+        }
+    }
 }
+
+// MARK: - Menu Bar Label
 
 struct MenuBarLabelView: View {
     @ObservedObject var model: AppModel
@@ -733,6 +948,155 @@ struct MenuBarLabelView: View {
     }
 }
 
+// MARK: - Expanded Widget Card (premium look)
+
+struct ExpandedWidgetCard: View {
+    let widget: WidgetItem
+    @ObservedObject var model: AppModel
+    var showBorder: Bool = true
+
+    var body: some View {
+        let summary = model.widgetSummary(for: widget)
+        HStack(spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(model.menuAccentColor.opacity(0.12))
+                    .frame(width: 32, height: 32)
+                Image(systemName: summary.symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(model.menuAccentColor)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(widget.title)
+                        .font(.caption.weight(.semibold))
+                    Spacer()
+                    if !model.isWidgetPinned(widget.id) {
+                        Button {
+                            model.togglePinnedWidget(widget.id)
+                        } label: {
+                            Image(systemName: "pin")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Pin to menu bar")
+                    } else {
+                        Button {
+                            model.togglePinnedWidget(widget.id)
+                        } label: {
+                            Image(systemName: "pin.fill")
+                                .font(.caption2)
+                                .foregroundStyle(model.menuAccentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Unpin from menu bar")
+                    }
+                }
+
+                if let progressValue = progressForWidget(widget) {
+                    ProgressView(value: progressValue)
+                        .tint(colorForProgress(progressValue))
+                        .scaleEffect(y: 0.6, anchor: .center)
+                }
+
+                Text(summary.value)
+                    .font(.callout.weight(.medium).monospacedDigit())
+                if let detail = summary.detail, !detail.isEmpty {
+                    Text(detail)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(10)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                if showBorder {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(0.06), lineWidth: 0.5)
+                }
+            }
+        )
+    }
+
+    private func progressForWidget(_ widget: WidgetItem) -> Double? {
+        guard let snapshot = model.currentDevice?.snapshot else { return nil }
+        switch widget.kind {
+        case "cpu-memory":
+            return snapshot.cpu.usagePercent / 100.0
+        case "storage":
+            return snapshot.storage.max(by: { $0.usedPct < $1.usedPct }).map { $0.usedPct / 100.0 }
+        case "battery":
+            return snapshot.battery.map { $0.percent / 100.0 }
+        default:
+            return nil
+        }
+    }
+
+    private func colorForProgress(_ value: Double) -> Color {
+        if value > 0.9 { return .red }
+        if value > 0.7 { return .orange }
+        return model.menuAccentColor
+    }
+}
+
+// MARK: - Compact Widget Row
+
+struct CompactWidgetRow: View {
+    let widget: WidgetItem
+    @ObservedObject var model: AppModel
+    var showBorder: Bool = true
+
+    var body: some View {
+        let summary = model.widgetSummary(for: widget)
+        HStack(spacing: 10) {
+            Image(systemName: summary.symbol)
+                .font(.caption)
+                .foregroundStyle(model.menuAccentColor)
+                .frame(width: 16)
+
+            Text(widget.title)
+                .font(.caption.weight(.semibold))
+
+            Spacer()
+
+            Text(summary.value)
+                .font(.caption.weight(.medium).monospacedDigit())
+                .foregroundStyle(.secondary)
+
+            Button {
+                model.togglePinnedWidget(widget.id)
+            } label: {
+                Image(systemName: model.isWidgetPinned(widget.id) ? "pin.fill" : "pin")
+                    .font(.system(size: 9))
+                    .foregroundStyle(model.isWidgetPinned(widget.id) ? model.menuAccentColor : .secondary)
+            }
+            .buttonStyle(.plain)
+            .help(model.isWidgetPinned(widget.id) ? "Unpin" : "Pin")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            ZStack {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(nsColor: .controlBackgroundColor).opacity(0.3))
+                if showBorder {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(.white.opacity(0.04), lineWidth: 0.5)
+                }
+            }
+        )
+    }
+}
+
+// MARK: - Shared Components
+
 struct SettingsCard<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
@@ -749,7 +1113,7 @@ struct SettingsCard<Content: View>: View {
             content
         }
         .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 
@@ -764,7 +1128,7 @@ struct PinnedStatChip: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(tint)
             Text(value)
-                .font(.caption.weight(.semibold))
+                .font(.caption.weight(.semibold).monospacedDigit())
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -886,6 +1250,8 @@ struct EmptyStateRow: View {
 
             Spacer()
         }
+        .padding(10)
+        .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 

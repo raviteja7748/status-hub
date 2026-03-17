@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -52,20 +51,15 @@ func TestBootstrapDefaultsToMacMenuBar(t *testing.T) {
 	}
 }
 
-func TestRootExplainsMenuBarOnlyMode(t *testing.T) {
+func TestRootReturnsNotFound(t *testing.T) {
 	server, _ := newTestServer(t)
 
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	recorder := httptest.NewRecorder()
 	server.Routes().ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d", recorder.Code)
-	}
-
-	body := recorder.Body.String()
-	if !strings.Contains(body, "menu-bar only") {
-		t.Fatalf("expected menu-bar only message, got %q", body)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d", recorder.Code)
 	}
 }
 

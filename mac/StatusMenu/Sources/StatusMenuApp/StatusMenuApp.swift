@@ -12,8 +12,10 @@ struct StatusMenuApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Settings {
+        WindowGroup("Settings", id: "settings") {
             SettingsView(model: model)
         }
+        .defaultSize(width: 520, height: 620)
+        .windowResizability(.contentSize)
     }
 }
