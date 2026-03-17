@@ -1,16 +1,17 @@
 # Ubuntu Setup Guide
 
-This project can run fully on your Ubuntu server.
+This is the supported deployment model for Status Hub.
 
-## What stays on Ubuntu
+## Final Setup Shape
 
-Yes, for the first version you can keep the main backend on Ubuntu only:
+- Ubuntu runs:
+  - the **hub**
+  - the **SQLite database**
+  - the **collector**
+- Your Mac runs only the menu bar app.
+- Tailscale connects the Mac app to the Ubuntu hub privately.
 
-- the **hub** runs on Ubuntu
-- the **SQLite database** stays on Ubuntu
-- the **collector** can also run on the same Ubuntu machine
-
-Your Mac menu bar app connects to the Ubuntu hub.
+If you want status even when you are far away, Ubuntu must keep running the hub and collector in the background.
 
 ## What you need before starting
 
@@ -50,20 +51,32 @@ This project uses a normal SQLite database file like:
 
 The Go app reads and writes that file directly.
 
-## Step-by-step install
+## Step-by-step install on Ubuntu
 
 ### 1. Get the code
-
-If this becomes your public GitHub repo:
 
 ```bash
 git clone https://github.com/YOUR-USERNAME/status-hub.git
 cd status-hub
 ```
 
-For now, if you copy the folder manually, just enter the project folder.
-
 ### 2. Start the hub on Ubuntu
+
+The easiest one-time install path is now:
+
+```bash
+sudo STATUS_ADMIN_PASSWORD=replace-me STATUS_DEVICE_TOKEN=replace-me ./scripts/install-ubuntu.sh
+```
+
+This script:
+
+- builds `status-hub` and `status-collector`
+- installs them into `/usr/local/bin`
+- copies the repo into `/opt/status-hub`
+- writes environment files under `/etc/status-hub`
+- installs and starts both systemd services
+
+If you want the manual source-run path instead, use:
 
 ```bash
 go run ./cmd/hub -listen :8080 -db status.db -admin-password statusadmin
@@ -77,6 +90,8 @@ What this does:
 
 ### 3. Start the collector on the same Ubuntu machine
 
+If you skipped the install script and want the manual source-run path, use:
+
 ```bash
 go run ./cmd/collector -hub http://127.0.0.1:8080 -token my-device-token -name ubuntu-server
 ```
@@ -87,9 +102,33 @@ What this does:
 - sends it to the hub
 - auto-registers the device in the menu bar app
 
-### 4. Open the menu bar app from your Mac
+### 4. Make Ubuntu stay online all the time
 
-Run the native menu bar app on your Mac:
+For a real deployment, do not keep these in a terminal forever. Run them as services so they start again after reboot.
+
+This repo already includes a collector service example:
+
+[status-collector.service](/Users/elite/project/status%20/docs/deploy/status-collector.service)
+
+And a hub service example:
+
+[status-hub.service](/Users/elite/project/status%20/docs/deploy/status-hub.service)
+
+The intended setup is:
+
+- one service for `status-hub`
+- one service for `status-collector`
+
+### 5. Install the Mac app
+
+The intended user-facing install path is:
+
+- download the latest macOS app zip from GitHub Releases
+- unzip it
+- move the app into `Applications`
+- open it and point it to your Ubuntu hub URL
+
+Until the packaged release flow is published, you can run the app from source on your Mac:
 
 ```bash
 cd /Users/elite/project/status\ /mac/StatusMenu
@@ -105,7 +144,7 @@ If you use Tailscale, use the Ubuntu Tailscale IP instead.
 
 ## Better production setup
 
-For a cleaner Ubuntu setup, build binaries:
+For a cleaner Ubuntu setup, build binaries on Ubuntu:
 
 ```bash
 go build -o status-hub ./cmd/hub
@@ -119,19 +158,29 @@ Then run:
 ./status-collector -hub http://127.0.0.1:8080 -token my-device-token -name ubuntu-server
 ```
 
-## Make collector start automatically
+## Update to a newer version later
 
-Use the example service file:
-
-[status-collector.service](/Users/elite/project/status%20/docs/deploy/status-collector.service)
-
-Copy it on Ubuntu:
+After your first install, the intended update path is:
 
 ```bash
+sudo /opt/status-hub/scripts/update-ubuntu.sh main
+```
+
+This pulls the latest code for the branch, rebuilds both binaries, and restarts the Ubuntu services.
+
+## Make the services start automatically
+
+Copy both files on Ubuntu:
+
+```bash
+sudo cp docs/deploy/status-hub.service /etc/systemd/system/status-hub.service
 sudo cp docs/deploy/status-collector.service /etc/systemd/system/status-collector.service
 sudo systemctl daemon-reload
+sudo systemctl enable --now status-hub
 sudo systemctl enable --now status-collector
 ```
+
+Edit the service files first so the paths, password, token, and hub address match your machine.
 
 ## Optional things to install
 
@@ -140,12 +189,10 @@ sudo systemctl enable --now status-collector
 
 ## Simple answer to your question
 
-Yes, you can keep this on Ubuntu only for now.
+Yes. The correct always-on setup is:
 
-The Ubuntu server can run:
+- Ubuntu runs the hub
+- Ubuntu runs the collector
+- Mac runs only the menu bar app
 
-- hub
-- SQLite database
-- collector
-
-Then your Mac menu bar app connects to it.
+You do not need a special Mac-side SSH helper to keep stats flowing 24/7.

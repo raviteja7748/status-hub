@@ -48,6 +48,8 @@ enum KeychainStore {
 final class AppModel: ObservableObject {
     @AppStorage("baseURL") var baseURL = "http://localhost:8080"
     @AppStorage("selectedDeviceID") var selectedDeviceID = ""
+    @AppStorage("pinnedWidgetIDsByScopeData") private var pinnedWidgetIDsByScopeData = "{}"
+    @AppStorage("menuAccentStyle") var menuAccentStyle = "system"
 
     @Published var passwordInput = ""
     @Published var devices: [DeviceSummary] = []
@@ -80,6 +82,7 @@ final class AppModel: ObservableObject {
     private var hasStarted = false
     private var bootstrapInFlight = false
     private var bootstrapQueued = false
+    private var queuedRefreshMetadata = false
     private var reconnectAttempts = 0
     private var currentStreamURL: URL?
 
@@ -97,6 +100,54 @@ final class AppModel: ObservableObject {
 
     var hasAdminSession: Bool {
         !adminSessionToken.isEmpty
+    }
+
+    var pinnedWidgetIDs: [String] {
+        get {
+            guard let data = pinnedWidgetIDsByScopeData.data(using: .utf8),
+                  let scoped = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+                return []
+            }
+            return scoped[pinnedScopeKey] ?? []
+        }
+        set {
+            let data = pinnedWidgetIDsByScopeData.data(using: .utf8) ?? Data("{}".utf8)
+            var scoped = (try? JSONDecoder().decode([String: [String]].self, from: data)) ?? [:]
+            scoped[pinnedScopeKey] = newValue
+            let encoded = (try? JSONEncoder().encode(scoped)) ?? Data("{}".utf8)
+            pinnedWidgetIDsByScopeData = String(data: encoded, encoding: .utf8) ?? "{}"
+        }
+    }
+
+    var pinnedWidgets: [WidgetItem] {
+        let visibleWidgets = widgets.filter(\.visible)
+        let visibleByID = Dictionary(uniqueKeysWithValues: visibleWidgets.map { ($0.id, $0) })
+        let ordered = pinnedWidgetIDs.compactMap { visibleByID[$0] }
+        return ordered.filter { widget in
+            ["battery", "cpu-memory", "temperature", "docker", "network", "storage", "overview"].contains(widget.kind)
+        }
+    }
+
+    var menuAccentColor: Color {
+        switch menuAccentStyle {
+        case "blue":
+            return .blue
+        case "green":
+            return .green
+        case "orange":
+            return .orange
+        case "red":
+            return .red
+        default:
+            switch alertSummary.highestLevel {
+            case "critical":
+                return .red
+            case "warning":
+                return .orange
+            default:
+                return .primary
+            }
+        }
     }
 
     var iconName: String {
@@ -152,7 +203,7 @@ final class AppModel: ObservableObject {
         guard !hasStarted else { return }
         hasStarted = true
         if hasStoredToken {
-            await bootstrap()
+            await bootstrap(refreshMetadata: true)
         } else {
             connectionState = .signedOut
         }
@@ -179,7 +230,7 @@ final class AppModel: ObservableObject {
         adminSessionToken = ""
         hasStarted = true
         if hasStoredToken {
-            await bootstrap(forceReconnect: true)
+            await bootstrap(forceReconnect: true, refreshMetadata: true)
         } else {
             connectionState = .signedOut
         }
@@ -205,21 +256,22 @@ final class AppModel: ObservableObject {
     func selectDevice(_ deviceID: String) {
         guard selectedDeviceID != deviceID else { return }
         selectedDeviceID = deviceID
-        scheduleBootstrap(immediate: true)
+        scheduleBootstrap(immediate: true, refreshMetadata: true)
     }
 
     func manualReconnect() {
         disconnectStream()
-        scheduleBootstrap(immediate: true, forceReconnect: true)
+        scheduleBootstrap(immediate: true, forceReconnect: true, refreshMetadata: true)
     }
 
     func refresh() {
-        scheduleBootstrap(immediate: true)
+        scheduleBootstrap(immediate: true, refreshMetadata: true)
     }
 
-    func bootstrap(forceReconnect: Bool = false) async {
+    func bootstrap(forceReconnect: Bool = false, refreshMetadata: Bool = false) async {
         if bootstrapInFlight {
             bootstrapQueued = true
+            queuedRefreshMetadata = queuedRefreshMetadata || refreshMetadata
             return
         }
         let token = storedClientToken()
@@ -243,8 +295,10 @@ final class AppModel: ObservableObject {
             bootstrapInFlight = false
             isRefreshing = false
             if bootstrapQueued {
+                let shouldRefreshMetadata = queuedRefreshMetadata
                 bootstrapQueued = false
-                Task { await self.bootstrap() }
+                queuedRefreshMetadata = false
+                Task { await self.bootstrap(refreshMetadata: shouldRefreshMetadata) }
             }
         }
 
@@ -274,14 +328,17 @@ final class AppModel: ObservableObject {
             devices = bootstrap.devices
             selectedDeviceID = resolvedDeviceID(from: bootstrap)
             widgets = bootstrap.layout?.widgets.sorted(by: { $0.order < $1.order }) ?? []
+            ensureDefaultPinnedWidgets()
             events = bootstrap.events
             alertSummary = bootstrap.alertSummary
             errorMessage = ""
             connectionState = devices.isEmpty ? .degraded : .ready
             reconnectAttempts = 0
-            await fetchAlertRules()
-            if hasAdminSession {
-                await fetchAdminResources()
+            if refreshMetadata {
+                await fetchAlertRules()
+                if hasAdminSession {
+                    await fetchAdminResources()
+                }
             }
             await connectStreamIfNeeded(forceReconnect: forceReconnect)
         } catch {
@@ -329,7 +386,7 @@ final class AppModel: ObservableObject {
             KeychainStore.saveToken(issued.token, service: baseURL)
             passwordInput = ""
             errorMessage = ""
-            await bootstrap(forceReconnect: true)
+            await bootstrap(forceReconnect: true, refreshMetadata: true)
             await fetchAdminResources()
         } catch {
             errorMessage = error.localizedDescription
@@ -399,7 +456,7 @@ final class AppModel: ObservableObject {
                 return
             }
             errorMessage = ""
-            await bootstrap()
+            await bootstrap(refreshMetadata: true)
         } catch {
             errorMessage = error.localizedDescription
             connectionState = .degraded
@@ -415,6 +472,79 @@ final class AppModel: ObservableObject {
             var updated = widget
             updated.order = position
             return updated
+        }
+    }
+
+    func isWidgetPinned(_ widgetID: String) -> Bool {
+        pinnedWidgetIDs.contains(widgetID)
+    }
+
+    func togglePinnedWidget(_ widgetID: String) {
+        let availableIDs = Set(widgets.map(\.id))
+        var current = pinnedWidgetIDs.filter { availableIDs.contains($0) }
+        if let index = current.firstIndex(of: widgetID) {
+            current.remove(at: index)
+        } else if widgets.contains(where: { $0.id == widgetID }) {
+            current.append(widgetID)
+        }
+        pinnedWidgetIDs = current
+    }
+
+    func movePinnedWidget(at index: Int, by delta: Int) {
+        let availableIDs = Set(widgets.map(\.id))
+        var current = pinnedWidgetIDs.filter { availableIDs.contains($0) }
+        let nextIndex = index + delta
+        guard nextIndex >= 0, nextIndex < current.count else { return }
+        current.swapAt(index, nextIndex)
+        pinnedWidgetIDs = current
+    }
+
+    func compactValue(for widget: WidgetItem) -> String {
+        guard let device = currentDevice else { return "--" }
+        guard let snapshot = device.snapshot else { return "..." }
+
+        switch widget.kind {
+        case "overview":
+            return device.online ? "Live" : "Off"
+        case "cpu-memory":
+            return "CPU \(format(snapshot.cpu.usagePercent, "%.0f"))%"
+        case "temperature":
+            let hottest = snapshot.temperatures.max(by: { $0.celsius < $1.celsius })
+            return hottest.map { "\(format($0.celsius, "%.0f"))C" } ?? "--"
+        case "battery":
+            guard let battery = snapshot.battery else { return "--" }
+            return "\(format(battery.percent, "%.0f"))%"
+        case "docker":
+            let healthy = snapshot.docker.filter(\.healthy).count
+            let total = snapshot.docker.count
+            return total == 0 ? "0" : "\(healthy)/\(total)"
+        case "network":
+            let active = snapshot.network.first(where: \.isDefault) ?? snapshot.network.first
+            return active.map { "\($0.name)" } ?? "--"
+        case "storage":
+            let fullest = snapshot.storage.max(by: { $0.usedPct < $1.usedPct })
+            return fullest.map { "\(format($0.usedPct, "%.0f"))%" } ?? "--"
+        default:
+            return "--"
+        }
+    }
+
+    func compactLabel(for widget: WidgetItem) -> String {
+        switch widget.kind {
+        case "cpu-memory":
+            return "CPU"
+        case "temperature":
+            return "TMP"
+        case "battery":
+            return "BAT"
+        case "docker":
+            return "DOC"
+        case "network":
+            return "NET"
+        case "storage":
+            return "DSK"
+        default:
+            return widget.title.uppercased()
         }
     }
 
@@ -449,7 +579,7 @@ final class AppModel: ObservableObject {
                 errorMessage = "Acknowledge failed"
                 return
             }
-            await bootstrap()
+            await bootstrap(refreshMetadata: false)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -716,14 +846,35 @@ final class AppModel: ObservableObject {
         return response.devices.first?.id ?? ""
     }
 
-    private func scheduleBootstrap(immediate: Bool = false, forceReconnect: Bool = false) {
+    private func ensureDefaultPinnedWidgets() {
+        let available = widgets.filter(\.visible)
+        let availableIDs = Set(available.map(\.id))
+        let filtered = pinnedWidgetIDs.filter { availableIDs.contains($0) }
+        if !filtered.isEmpty {
+            pinnedWidgetIDs = filtered
+            return
+        }
+
+        let preferredKinds = ["battery", "cpu-memory", "temperature"]
+        let defaults = preferredKinds.compactMap { kind in
+            available.first(where: { $0.kind == kind })?.id
+        }
+        pinnedWidgetIDs = defaults
+    }
+
+    private var pinnedScopeKey: String {
+        let deviceKey = selectedDeviceID.isEmpty ? "default-device" : selectedDeviceID
+        return "\(baseURL)::\(deviceKey)"
+    }
+
+    private func scheduleBootstrap(immediate: Bool = false, forceReconnect: Bool = false, refreshMetadata: Bool = false) {
         scheduledBootstrapTask?.cancel()
         scheduledBootstrapTask = Task { [weak self] in
             if !immediate {
                 try? await Task.sleep(nanoseconds: 300_000_000)
             }
             guard let self else { return }
-            await self.bootstrap(forceReconnect: forceReconnect)
+            await self.bootstrap(forceReconnect: forceReconnect, refreshMetadata: refreshMetadata)
         }
     }
 
@@ -872,7 +1023,7 @@ final class AppModel: ObservableObject {
                 if connectionState == .degraded || connectionState == .error {
                     connectionState = devices.isEmpty ? .loading : .ready
                 }
-                scheduleBootstrap()
+                scheduleBootstrap(refreshMetadata: false)
             } catch {
                 guard task === streamTask else { return }
                 streamConnected = false

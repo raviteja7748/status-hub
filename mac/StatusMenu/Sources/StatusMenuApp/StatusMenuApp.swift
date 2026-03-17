@@ -5,8 +5,10 @@ struct StatusMenuApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("Status", systemImage: model.iconName) {
+        MenuBarExtra {
             MenuContentView(model: model)
+        } label: {
+            MenuBarLabelView(model: model)
         }
         .menuBarExtraStyle(.window)
 

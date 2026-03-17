@@ -6,4 +6,5 @@ bin/
 node_modules/
 web/node_modules/
 mac/StatusMenu/.build/
+artifacts/
 .DS_Store
