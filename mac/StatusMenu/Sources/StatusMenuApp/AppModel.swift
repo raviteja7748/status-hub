@@ -46,7 +46,7 @@ enum KeychainStore {
 
 @MainActor
 final class AppModel: ObservableObject {
-    @AppStorage("baseURL") var baseURL = "http://localhost:8080"
+    @AppStorage("baseURL") var baseURL = "http://100.108.187.59:8080"
     @AppStorage("selectedDeviceID") var selectedDeviceID = ""
     @AppStorage("pinnedWidgetIDsByScopeData") private var pinnedWidgetIDsByScopeData = "{}"
     @AppStorage("menuAccentStyle") var menuAccentStyle = "system"
