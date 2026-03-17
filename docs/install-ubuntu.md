@@ -10,7 +10,7 @@ Yes, for the first version you can keep the main backend on Ubuntu only:
 - the **SQLite database** stays on Ubuntu
 - the **collector** can also run on the same Ubuntu machine
 
-Your Mac menu bar app and phone browser only connect to the Ubuntu hub.
+Your Mac menu bar app connects to the Ubuntu hub.
 
 ## What you need before starting
 
@@ -36,7 +36,7 @@ go version
 Optional, but useful:
 
 - `docker` if you want Docker widget data
-- `tailscale` if you want safe private access from your Mac and phone
+- `tailscale` if you want safe private access from your Mac
 
 ## If you already have SQLite
 
@@ -85,19 +85,18 @@ What this does:
 
 - collects real system info from Ubuntu
 - sends it to the hub
-- auto-registers the device in the UI
+- auto-registers the device in the menu bar app
 
-### 4. Open the dashboard from your Mac
+### 4. Open the menu bar app from your Mac
 
-Run the web UI locally on your Mac:
+Run the native menu bar app on your Mac:
 
 ```bash
-cd /Users/elite/project/status\ /web
-npm install
-npm run dev
+cd /Users/elite/project/status\ /mac/StatusMenu
+swift run
 ```
 
-Then in the browser:
+Then in the app settings:
 
 - set Hub URL to `http://YOUR-UBUNTU-IP:8080`
 - log in with password `statusadmin`
@@ -137,8 +136,7 @@ sudo systemctl enable --now status-collector
 ## Optional things to install
 
 - `docker`: needed only if you want Docker container status
-- `tailscale`: needed only if you want private remote access from Mac and phone
-- `nodejs` and `npm`: needed only if you want to run the React dashboard from source
+- `tailscale`: needed only if you want private remote access from Mac
 
 ## Simple answer to your question
 
@@ -150,4 +148,4 @@ The Ubuntu server can run:
 - SQLite database
 - collector
 
-Then your Mac and mobile only connect to it.
+Then your Mac menu bar app connects to it.

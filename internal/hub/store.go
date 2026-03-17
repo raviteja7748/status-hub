@@ -192,9 +192,6 @@ func (s *Store) UpsertDevice(ctx context.Context, token, name string, capabiliti
 		if err := s.SaveLayout(ctx, id, "mac_menu_bar", DefaultLayoutWidgets(id, "mac_menu_bar")); err != nil {
 			return model.Device{}, err
 		}
-		if err := s.SaveLayout(ctx, id, "mobile_web", DefaultLayoutWidgets(id, "mobile_web")); err != nil {
-			return model.Device{}, err
-		}
 	} else if err != nil {
 		return model.Device{}, err
 	} else {
@@ -205,11 +202,6 @@ func (s *Store) UpsertDevice(ctx context.Context, token, name string, capabiliti
 		if _, err := s.GetLayout(ctx, id, "mac_menu_bar"); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				_ = s.SaveLayout(ctx, id, "mac_menu_bar", DefaultLayoutWidgets(id, "mac_menu_bar"))
-			}
-		}
-		if _, err := s.GetLayout(ctx, id, "mobile_web"); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				_ = s.SaveLayout(ctx, id, "mobile_web", DefaultLayoutWidgets(id, "mobile_web"))
 			}
 		}
 	}

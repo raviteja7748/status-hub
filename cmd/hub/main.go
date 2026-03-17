@@ -12,7 +12,7 @@ import (
 func main() {
 	listenAddr := flag.String("listen", envOrDefault("STATUS_LISTEN_ADDR", ":8080"), "listen address")
 	dbPath := flag.String("db", envOrDefault("STATUS_DB_PATH", "status.db"), "sqlite database path")
-	adminPassword := flag.String("admin-password", envOrDefault("STATUS_ADMIN_PASSWORD", "statusadmin"), "admin password for dashboard login")
+	adminPassword := flag.String("admin-password", envOrDefault("STATUS_ADMIN_PASSWORD", "statusadmin"), "admin password for menu bar app setup")
 	publicURL := flag.String("public-url", envOrDefault("STATUS_PUBLIC_URL", "http://localhost:8080"), "public hub URL")
 	flag.Parse()
 
