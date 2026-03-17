@@ -49,6 +49,7 @@ struct SettingsView: View {
                 if !model.devices.isEmpty {
                     deviceSection
                 }
+                sshSection
                 footerError
             }
             .padding(20)
@@ -268,6 +269,48 @@ struct SettingsView: View {
                     Button("Refresh now") { model.refresh() }
                     Button("Reconnect stream") { model.manualReconnect() }
                 }
+            }
+        }
+    }
+
+    // MARK: SSH
+
+    private var sshSection: some View {
+        SettingsCard("Quick SSH") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("User")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("Username", text: $model.sshUser)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Host")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        TextField("IP or hostname", text: $model.sshHost)
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                HStack {
+                    Button {
+                        model.openSSH()
+                    } label: {
+                        Label("Open SSH in Terminal", systemImage: "terminal")
+                    }
+
+                    Text("ssh \(model.sshUser)@\(model.sshHost)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+
+                Text("One-click SSH is also available from the menu bar dropdown.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
     }
@@ -844,9 +887,9 @@ struct MenuContentView: View {
             .disabled(model.isRefreshing)
 
             Button {
-                model.manualReconnect()
+                model.openSSH()
             } label: {
-                Label("Reconnect", systemImage: "wifi.exclamationmark")
+                Label("SSH", systemImage: "terminal")
                     .font(.caption.weight(.medium))
             }
             .buttonStyle(.bordered)
@@ -855,6 +898,7 @@ struct MenuContentView: View {
             Spacer()
 
             Button {
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "settings")
             } label: {
@@ -887,6 +931,7 @@ struct MenuContentView: View {
                 detail: "Open Settings, enter the hub URL, and create a secure client token."
             )
             Button("Open Settings") {
+                NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
                 openWindow(id: "settings")
             }

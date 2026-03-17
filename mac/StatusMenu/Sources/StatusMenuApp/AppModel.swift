@@ -52,6 +52,8 @@ final class AppModel: ObservableObject {
     @AppStorage("menuAccentStyle") var menuAccentStyle = "system"
     @AppStorage("widgetDisplayStyle") var widgetDisplayStyle = "expanded"
     @AppStorage("showWidgetBorders") var showWidgetBorders = true
+    @AppStorage("sshUser") var sshUser = "elite"
+    @AppStorage("sshHost") var sshHost = "100.108.187.59"
 
     @Published var passwordInput = ""
     @Published var devices: [DeviceSummary] = []
@@ -98,6 +100,20 @@ final class AppModel: ObservableObject {
 
     var isSignedIn: Bool {
         hasStoredToken
+    }
+
+    func openSSH() {
+        let command = "ssh \(sshUser)@\(sshHost)"
+        let script = """
+        tell application "Terminal"
+            activate
+            do script "\(command)"
+        end tell
+        """
+        if let appleScript = NSAppleScript(source: script) {
+            var error: NSDictionary?
+            appleScript.executeAndReturnError(&error)
+        }
     }
 
     var hasAdminSession: Bool {
