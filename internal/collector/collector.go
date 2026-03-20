@@ -128,7 +128,11 @@ func (c *Collector) collectSnapshot() (model.Snapshot, error) {
 		return model.Snapshot{}, err
 	}
 	cpuPct, _ := cpu.Percent(time.Second, false)
-	vmem, _ := mem.VirtualMemory()
+	coreCount, _ := cpu.Counts(true)
+	vmem, err := mem.VirtualMemory()
+	if err != nil || vmem == nil {
+		vmem = &mem.VirtualMemoryStat{}
+	}
 	partitions, _ := disk.Partitions(false)
 	netStats, _ := net.IOCounters(true)
 	temps, _ := sensors.SensorsTemperatures()
@@ -138,13 +142,16 @@ func (c *Collector) collectSnapshot() (model.Snapshot, error) {
 		Hostname:    info.Hostname,
 		UptimeSec:   info.Uptime,
 		CPU: model.CPUStats{
-			Cores: len(cpuPct),
+			Cores: coreCount,
 		},
 		Memory: model.MemoryStats{
 			UsedBytes:  vmem.Used,
 			TotalBytes: vmem.Total,
 			UsedPct:    vmem.UsedPercent,
 		},
+	}
+	if snapshot.CPU.Cores <= 0 {
+		snapshot.CPU.Cores = len(cpuPct)
 	}
 	if len(cpuPct) > 0 {
 		snapshot.CPU.UsagePercent = cpuPct[0]

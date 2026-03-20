@@ -3,8 +3,10 @@ package hub
 import (
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
@@ -37,16 +39,18 @@ const authContextKey contextKey = "authIdentity"
 type Config struct {
 	AdminPassword string
 	PublicURL     string
+	DeviceToken   string
 }
 
 type Server struct {
-	store      *Store
-	config     Config
-	upgrader   websocket.Upgrader
-	mu         sync.Mutex
-	sessions   map[string]time.Time
-	streams    map[*websocket.Conn]struct{}
-	httpClient *http.Client
+	store         *Store
+	config        Config
+	upgrader      websocket.Upgrader
+	mu            sync.Mutex
+	streamWriteMu sync.Mutex
+	sessions      map[string]time.Time
+	streams       map[*websocket.Conn]struct{}
+	httpClient    *http.Client
 }
 
 func NewServer(store *Store, config Config) *Server {
@@ -322,6 +326,10 @@ func (s *Server) handleEventActions(w http.ResponseWriter, r *http.Request) {
 	}
 	identity := identityFromContext(r.Context())
 	if err := s.store.AcknowledgeEvent(r.Context(), eventID, identity.Name); err != nil {
+		if errors.Is(err, ErrNotFound) {
+			writeJSON(w, http.StatusNotFound, map[string]string{"error": "event not found"})
+			return
+		}
 		s.writeServerError(w, r, err)
 		return
 	}
@@ -404,8 +412,8 @@ func (s *Server) handleClientTokenActions(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleDeviceSocket(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
-	if token == "" {
-		http.Error(w, "missing token", http.StatusUnauthorized)
+	if !s.validCollectorToken(token) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	conn, err := s.upgrader.Upgrade(w, r, nil)
@@ -456,6 +464,14 @@ func (s *Server) handleDeviceSocket(w http.ResponseWriter, r *http.Request) {
 			s.evaluateAlerts(r.Context(), device, *envelope.Snapshot)
 		}
 	}
+}
+
+func (s *Server) validCollectorToken(token string) bool {
+	expected := strings.TrimSpace(s.config.DeviceToken)
+	if token == "" || expected == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 
 func (s *Server) evaluateAlerts(ctx context.Context, device model.Device, snapshot model.Snapshot) {
@@ -580,19 +596,37 @@ func (s *Server) broadcast(message model.StreamMessage) {
 	if err != nil {
 		return
 	}
+
+	s.mu.Lock()
+	conns := make([]*websocket.Conn, 0, len(s.streams))
+	for conn := range s.streams {
+		conns = append(conns, conn)
+	}
+	s.mu.Unlock()
+
+	var failed []*websocket.Conn
+	for _, conn := range conns {
+		s.streamWriteMu.Lock()
+		err := conn.WriteMessage(websocket.TextMessage, payload)
+		s.streamWriteMu.Unlock()
+		if err != nil {
+			conn.Close()
+			failed = append(failed, conn)
+		}
+	}
+	if len(failed) == 0 {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for conn := range s.streams {
-		if err := conn.WriteMessage(websocket.TextMessage, payload); err != nil {
-			conn.Close()
-			delete(s.streams, conn)
-		}
+	for _, conn := range failed {
+		delete(s.streams, conn)
 	}
 }
 
 func (s *Server) writeServerError(w http.ResponseWriter, r *http.Request, err error) {
 	log.Printf("500 %s %s: %v", r.Method, r.URL.Path, err)
-	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {

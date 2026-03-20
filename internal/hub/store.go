@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sort"
 	"time"
 
@@ -18,6 +19,8 @@ import (
 type Store struct {
 	db *sql.DB
 }
+
+var ErrNotFound = errors.New("not found")
 
 func NewStore(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
@@ -135,15 +138,44 @@ func (s *Store) init() error {
 		}
 	}
 
-	schemaChanges := []string{
-		`alter table events add column acknowledged_at text;`,
-		`alter table events add column acknowledged_by text;`,
+	if err := s.ensureColumn("events", "acknowledged_at", `alter table events add column acknowledged_at text;`); err != nil {
+		return err
 	}
-	for _, stmt := range schemaChanges {
-		_, _ = s.db.Exec(stmt)
+	if err := s.ensureColumn("events", "acknowledged_by", `alter table events add column acknowledged_by text;`); err != nil {
+		return err
 	}
 
 	return nil
+}
+
+func (s *Store) ensureColumn(tableName, columnName, statement string) error {
+	rows, err := s.db.Query(fmt.Sprintf(`pragma table_info(%s)`, tableName))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid      int
+			name     string
+			typ      string
+			notNull  int
+			defaultV interface{}
+			primaryK int
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultV, &primaryK); err != nil {
+			return err
+		}
+		if name == columnName {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = s.db.Exec(statement)
+	return err
 }
 
 func (s *Store) SeedDefaults() error {
@@ -475,9 +507,19 @@ func (s *Store) ResolveEvent(ctx context.Context, eventID string) error {
 }
 
 func (s *Store) AcknowledgeEvent(ctx context.Context, eventID, actor string) error {
-	_, err := s.db.ExecContext(ctx, `update events set acknowledged_at = ?, acknowledged_by = ? where id = ?`,
+	result, err := s.db.ExecContext(ctx, `update events set acknowledged_at = ?, acknowledged_by = ? where id = ?`,
 		time.Now().UTC().Format(time.RFC3339), actor, eventID)
-	return err
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *Store) ListEvents(ctx context.Context, deviceID string) ([]model.Event, error) {

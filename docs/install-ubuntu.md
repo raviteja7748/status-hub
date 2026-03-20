@@ -66,7 +66,7 @@ For now, if you copy the folder manually, just enter the project folder.
 ### 2. Start the hub on Ubuntu
 
 ```bash
-go run ./cmd/hub -listen :8080 -db status.db -admin-password statusadmin
+go run ./cmd/hub -listen :8080 -db status.db -admin-password statusadmin -device-token my-device-token
 ```
 
 What this does:
@@ -74,6 +74,7 @@ What this does:
 - starts the API server on port `8080`
 - creates `status.db` if it does not exist
 - uses `statusadmin` as the first login password
+- requires the same `my-device-token` value your collector uses
 
 ### 3. Start the collector on the same Ubuntu machine
 
@@ -116,7 +117,7 @@ go build -o status-collector ./cmd/collector
 Then run:
 
 ```bash
-./status-hub -listen :8080 -db status.db -admin-password statusadmin
+./status-hub -listen :8080 -db status.db -admin-password statusadmin -device-token my-device-token
 ./status-collector -hub http://127.0.0.1:8080 -token my-device-token -name ubuntu-server
 ```
 

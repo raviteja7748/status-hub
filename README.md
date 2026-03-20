@@ -30,7 +30,7 @@ Detailed Ubuntu instructions are in [docs/install-ubuntu.md](/Users/elite/projec
 ### 1. Run the hub
 
 ```bash
-go run ./cmd/hub -listen :8080 -admin-password statusadmin
+go run ./cmd/hub -listen :8080 -admin-password statusadmin -device-token my-device-token
 ```
 
 ### 2. Run the collector

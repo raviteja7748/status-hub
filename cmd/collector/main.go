@@ -14,10 +14,13 @@ import (
 
 func main() {
 	hubURL := flag.String("hub", envOrDefault("STATUS_HUB_URL", "http://localhost:8080"), "hub base URL")
-	token := flag.String("token", envOrDefault("STATUS_DEVICE_TOKEN", "device-demo-token"), "device token")
+	token := flag.String("token", envOrDefault("STATUS_DEVICE_TOKEN", ""), "device token")
 	name := flag.String("name", envOrDefault("STATUS_DEVICE_NAME", ""), "friendly device name")
 	interval := flag.Duration("interval", 15*time.Second, "snapshot interval")
 	flag.Parse()
+	if *token == "" {
+		log.Fatal("device token is required (set --token or STATUS_DEVICE_TOKEN)")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
