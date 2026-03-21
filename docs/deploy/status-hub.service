@@ -1,0 +1,15 @@
+[Unit]
+Description=Status Hub API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/status-hub
+EnvironmentFile=/etc/status-hub/status-hub.env
+ExecStart=/usr/local/bin/status-hub -listen ${STATUS_LISTEN_ADDR} -db ${STATUS_DB_PATH} -admin-password ${STATUS_ADMIN_PASSWORD}
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

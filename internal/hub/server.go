@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"io/fs"
 	"log"
 	"net/http"
 	"strings"
@@ -15,7 +14,6 @@ import (
 	"time"
 
 	"github.com/elite/status/internal/model"
-	"github.com/elite/status/internal/webdist"
 	"github.com/gorilla/websocket"
 )
 
@@ -74,7 +72,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/sessions", s.handleSessionLogin)
 	mux.HandleFunc("/api/bootstrap", s.withAuth(s.handleBootstrap))
 	mux.HandleFunc("/api/devices", s.withAuth(s.handleDevices))
-	mux.HandleFunc("/api/widgets", s.withAuth(s.handleWidgets))
 	mux.HandleFunc("/api/layouts", s.withAuth(s.handleLayouts))
 	mux.HandleFunc("/api/alerts", s.withAuth(s.handleAlerts))
 	mux.HandleFunc("/api/events", s.withAuth(s.handleEvents))
@@ -84,7 +81,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/client-tokens/", s.withAdminAuth(s.handleClientTokenActions))
 	mux.HandleFunc("/ws/device", s.handleDeviceSocket)
 	mux.HandleFunc("/ws/stream", s.handleClientStream)
-	mux.Handle("/", staticHandler())
 	return loggingMiddleware(mux)
 }
 
@@ -182,7 +178,7 @@ func identityFromContext(ctx context.Context) authIdentity {
 func (s *Server) handleBootstrap(w http.ResponseWriter, r *http.Request) {
 	target := r.URL.Query().Get("target")
 	if target == "" {
-		target = "mobile_web"
+		target = "mac_menu_bar"
 	}
 	deviceID := r.URL.Query().Get("deviceId")
 	bootstrap, err := s.store.BuildBootstrap(r.Context(), deviceID, target)
@@ -200,36 +196,6 @@ func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, devices)
-}
-
-func (s *Server) handleWidgets(w http.ResponseWriter, r *http.Request) {
-	deviceID := r.URL.Query().Get("deviceId")
-	if deviceID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "deviceId is required"})
-		return
-	}
-	switch r.Method {
-	case http.MethodGet:
-		widgets, err := s.store.ListWidgets(r.Context(), deviceID)
-		if err != nil {
-			s.writeServerError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, widgets)
-	case http.MethodPut:
-		var widgets []model.Widget
-		if err := json.NewDecoder(r.Body).Decode(&widgets); err != nil {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid widgets payload"})
-			return
-		}
-		if err := s.store.SaveWidgets(r.Context(), deviceID, widgets); err != nil {
-			s.writeServerError(w, r, err)
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
 }
 
 func (s *Server) handleLayouts(w http.ResponseWriter, r *http.Request) {
@@ -614,9 +580,11 @@ func (s *Server) broadcast(message model.StreamMessage) {
 			failed = append(failed, conn)
 		}
 	}
+
 	if len(failed) == 0 {
 		return
 	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, conn := range failed {
@@ -641,54 +609,10 @@ func randomToken() string {
 	return hex.EncodeToString(buf)
 }
 
-func randomTokenString() string {
-	return randomToken()
-}
-
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
-	})
-}
-
-func staticHandler() http.Handler {
-	sub, err := webdist.Sub()
-	if err != nil {
-		log.Printf("web assets unavailable: %v", err)
-		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-			http.Error(w, "web assets unavailable", http.StatusNotFound)
-		})
-	}
-
-	fileServer := http.FileServer(http.FS(sub))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.NotFound(w, r)
-			return
-		}
-		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/ws/") {
-			http.NotFound(w, r)
-			return
-		}
-
-		path := strings.TrimPrefix(r.URL.Path, "/")
-		if path == "" {
-			path = "index.html"
-		}
-
-		if _, err := fs.Stat(sub, path); err == nil {
-			fileServer.ServeHTTP(w, r)
-			return
-		}
-
-		index, err := fs.ReadFile(sub, "index.html")
-		if err != nil {
-			http.Error(w, "index unavailable", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = w.Write(index)
 	})
 }
