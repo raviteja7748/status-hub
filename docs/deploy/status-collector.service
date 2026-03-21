@@ -5,10 +5,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/status-collector -hub http://100.64.0.10:8080 -token replace-me -name old-linux-laptop
+EnvironmentFile=/etc/status-hub/status-collector.env
+ExecStart=/usr/local/bin/status-collector -hub ${STATUS_HUB_URL} -token ${STATUS_DEVICE_TOKEN} -name ${STATUS_DEVICE_NAME}
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
-

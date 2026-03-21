@@ -25,7 +25,7 @@ It is built as a starter monorepo with:
 
 ## Quick Start
 
-Detailed Ubuntu instructions are in [docs/install-ubuntu.md](/Users/elite/project/status%20/docs/install-ubuntu.md).
+Detailed Ubuntu instructions are in [docs/install-ubuntu.md](docs/install-ubuntu.md).
 
 ### 1. Run the hub
 
